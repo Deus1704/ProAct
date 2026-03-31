@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+proactive_assistant_app/assistant.db
+proactive_assistant_app/browser_session/
+tests/__pycache__/

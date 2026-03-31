@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proactive Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="toast hidden" id="toast"></div>
+
+    <section class="screen" data-route="/">
+      <header class="topbar">
+        <button class="brand-button route-link" data-route-target="/" aria-label="Go to home">
+          <span class="brand-mark">PROACTIVE ASSISTANT</span>
+        </button>
+        <div class="topbar-actions">
+          <button class="icon-button" type="button" aria-label="Live context">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12a7 7 0 0 1 14 0" />
+              <path d="M2 12a10 10 0 0 1 20 0" />
+              <path d="M8 12a4 4 0 0 1 8 0" />
+              <circle cx="12" cy="16" r="1.5" />
+            </svg>
+          </button>
+          <button class="icon-button icon-button--profile" type="button" aria-label="Profile">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5" />
+              <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="page page-home">
+        <section class="hero-copy">
+          <p class="eyebrow">Friday night mode</p>
+          <h1 id="homeGreetingHeading">Welcome</h1>
+          <p>Your Friday night operations are primed.</p>
+        </section>
+
+        <section class="assistant-grid">
+          <article class="feature-card feature-card--rides route-link" data-route-target="/rides" role="button" tabindex="0" aria-label="Open rides assistant">
+            <div class="feature-card__badge">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="4" y="9" width="16" height="8" rx="2" />
+                <path d="M7 9V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" />
+                <circle cx="8" cy="17.5" r="1.3" />
+                <circle cx="16" cy="17.5" r="1.3" />
+              </svg>
+            </div>
+            <div class="feature-card__content">
+              <h2>Travelling Somewhere?</h2>
+              <p>Quick rides based on your routine</p>
+              <span class="feature-chip" id="homeRideChip">HOME IN 12M</span>
+            </div>
+          </article>
+
+          <article class="feature-card feature-card--food route-link" data-route-target="/food" role="button" tabindex="0" aria-label="Open food assistant">
+            <div class="feature-card__badge feature-card__badge--amber">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 4v8" />
+                <path d="M10 4v8" />
+                <path d="M7 8h3" />
+                <path d="M14 4v5" />
+                <path d="M17 4v16" />
+              </svg>
+            </div>
+            <div class="feature-card__content">
+              <h2>Hungry?</h2>
+              <p>Cravings predicted for your Friday night</p>
+              <span class="feature-chip feature-chip--amber">SUSHI PREDICTED</span>
+            </div>
+          </article>
+        </section>
+
+        <section class="spotlight-card">
+          <div class="spotlight-card__header">
+            <div>
+              <p class="spotlight-kicker">LOOKING FOR...</p>
+            </div>
+            <div class="spotlight-card__glyph" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+
+          <div class="spotlight-grid">
+            <article class="spotlight-panel">
+              <p class="spotlight-panel__label">LOGISTICS</p>
+              <div class="spotlight-panel__body">
+                <div class="spotlight-panel__icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 6v12" />
+                    <path d="M16 6v12" />
+                    <path d="M12 9v6" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 id="logisticsTitle">ETA Home: 18:45</h3>
+                  <p id="logisticsText">Optimal route via Main St.</p>
+                </div>
+              </div>
+              <button class="panel-cta panel-cta--cyan route-link" data-route-target="/rides" type="button">CONFIRM RIDE</button>
+            </article>
+
+            <article class="spotlight-panel">
+              <p class="spotlight-panel__label">NUTRITION</p>
+              <div class="spotlight-panel__body">
+                <div class="spotlight-panel__icon spotlight-panel__icon--amber">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20s-6-3.3-6-8.3A3.7 3.7 0 0 1 12 9a3.7 3.7 0 0 1 6 2.7C18 16.7 12 20 12 20Z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3>4.9★ Local Pick</h3>
+                  <p>Matching your sushi profile.</p>
+                </div>
+              </div>
+              <button class="panel-cta panel-cta--amber route-link" data-route-target="/food" type="button">CONFIRM ORDER</button>
+            </article>
+          </div>
+
+          <div class="spotlight-card__footer">
+            <p>Both assistants are optimized for your current location &amp; time.</p>
+            <button class="text-link route-link" data-route-target="/rides" type="button">VIEW DETAILS</button>
+          </div>
+        </section>
+
+        <section class="home-bottom-grid">
+          <div>
+            <div class="section-heading">
+              <h2>RECENT ACTIVITY</h2>
+            </div>
+            <div class="activity-list" id="homeActivityList">
+              <article class="activity-row">
+                <div class="activity-row__icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 7v5l3 2" />
+                    <circle cx="12" cy="12" r="8" />
+                    <path d="M8 4l-2 2" />
+                  </svg>
+                </div>
+                <div class="activity-row__copy">
+                  <h3>Loading latest activity...</h3>
+                  <p>Fetching your latest ride from history.</p>
+                </div>
+                <span class="activity-row__chevron">›</span>
+              </article>
+            </div>
+          </div>
+
+          <div>
+            <div class="section-heading">
+              <h2>LIVE CONTEXT</h2>
+            </div>
+            <article class="context-card">
+              <div class="map-orb"></div>
+              <div class="context-card__label">
+                <strong>CURRENT POSITION</strong>
+                <span id="contextLocation">SoMa District</span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <section class="screen hidden" data-route="/rides">
+      <header class="topbar">
+        <button class="brand-button route-link brand-button--titlecase" data-route-target="/" aria-label="Go to home">
+          <span class="brand-mark">RideAssistant</span>
+        </button>
+        <div class="context-pill context-pill--cyan">
+          <span class="context-pill__dot"></span>
+          <span>LIVE TRAFFIC</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" type="button" aria-label="Live context">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12a7 7 0 0 1 14 0" />
+              <path d="M2 12a10 10 0 0 1 20 0" />
+              <path d="M8 12a4 4 0 0 1 8 0" />
+              <circle cx="12" cy="16" r="1.5" />
+            </svg>
+          </button>
+          <button class="icon-button" type="button" aria-label="Profile">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5" />
+              <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="page page-rides">
+        <section class="hero-panel hero-panel--rides">
+          <div class="hero-panel__content">
+            <span class="mini-pill mini-pill--cyan">SMART SUGGESTION</span>
+            <h1>Looking for a ride?</h1>
+            <p id="ridesHeroText">Heading to Downtown Studio? Traffic is light, 12 mins to arrival.</p>
+            <div class="hero-actions">
+              <button class="primary-cta" id="bookRideNow" type="button">Book Now <span>→</span></button>
+              <button class="secondary-cta" id="scheduleRide" type="button">Schedule</button>
+            </div>
+          </div>
+          <div class="hero-panel__eta">
+            <div class="hero-panel__eta-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12 19 5l-4 14-3.5-5.5Z" />
+              </svg>
+            </div>
+            <div>
+              <span>ETA</span>
+              <strong id="rideEtaLabel">12 MINS</strong>
+            </div>
+          </div>
+          <div class="map-pin" aria-hidden="true"></div>
+        </section>
+
+        <section class="section-stack" id="ridePatternsSection">
+          <div class="section-heading section-heading--space">
+            <h2>Commute Patterns</h2>
+            <span class="section-tag">Weekly Analysis</span>
+          </div>
+          <div class="pattern-card-grid" id="ridePatternCards">
+            <article class="pattern-card pattern-card--cyan">
+              <div class="pattern-card__icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="5" y="6" width="14" height="12" rx="2" />
+                  <path d="M9 6V4h6v2" />
+                </svg>
+              </div>
+              <span class="pattern-card__tag">4X THIS WEEK</span>
+              <h3>Tech Hub HQ</h3>
+              <p>Typical start: 08:45 AM</p>
+              <div class="pattern-card__footer">
+                <span class="pattern-bar"></span>
+                <strong>Book Fast</strong>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section-stack">
+          <div class="section-heading section-heading--space">
+            <h2>Uber Account</h2>
+            <span class="section-tag" id="uberConnectionTag">Checking status</span>
+          </div>
+          <article class="uber-connect-card">
+            <div class="uber-connect-card__copy">
+              <h3 id="uberLoginStatusText">Uber account not connected</h3>
+              <p id="uberSyncStatusText">Connect and sync to use actual ride history in recent activity.</p>
+            </div>
+            <div class="uber-connect-card__actions">
+              <button class="secondary-cta" id="connectUberBtn" type="button">Connect Uber Account</button>
+              <button class="primary-cta" id="syncUberBtn" type="button">Sync Ride History</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="section-stack">
+          <div class="section-heading section-heading--space">
+            <h2>Recent History</h2>
+            <button class="text-link" id="viewAllRideHistoryBtn" type="button">View All</button>
+          </div>
+          <div class="history-list" id="rideHistoryList">
+            <article class="history-row">
+              <div class="history-thumb history-thumb--car"></div>
+              <div class="history-row__copy">
+                <h3>Downtown Studio</h3>
+                <p>Today, 02:30 PM • Completed</p>
+              </div>
+              <div class="history-row__meta">
+                <strong>₹1,175.00</strong>
+                <span>›</span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <section class="screen hidden" data-route="/food">
+      <header class="topbar">
+        <button class="brand-button route-link brand-button--titlecase" data-route-target="/" aria-label="Go to home">
+          <span class="brand-mark">FoodAssistant</span>
+        </button>
+        <div class="context-pill context-pill--amber">
+          <span class="context-pill__dot"></span>
+          <span>CRAVINGS PREDICTED</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" type="button" aria-label="Live context">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12a7 7 0 0 1 14 0" />
+              <path d="M2 12a10 10 0 0 1 20 0" />
+              <path d="M8 12a4 4 0 0 1 8 0" />
+              <circle cx="12" cy="16" r="1.5" />
+            </svg>
+          </button>
+          <button class="icon-button" type="button" aria-label="Profile">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5" />
+              <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="page page-food">
+        <section class="hero-panel hero-panel--food">
+          <div class="hero-panel__content hero-panel__content--food">
+            <span class="mini-pill mini-pill--amber">PRIORITY INSIGHT</span>
+            <h1 id="foodHeroText">Hungry? Connect Swiggy or Zomato to personalize your next meal.</h1>
+            <div class="hero-actions">
+              <button class="primary-cta primary-cta--amber" id="orderNowBtn" type="button">Order Now</button>
+              <div class="delivery-pill">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 7v6l3 2" />
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                <span id="foodEtaText">Delivery estimate appears after sync</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-stack">
+          <div class="section-heading section-heading--space">
+            <h2>Food Accounts</h2>
+            <span class="section-tag" id="foodProviderTag">Checking status</span>
+          </div>
+          <article class="uber-connect-card">
+            <div class="uber-connect-card__copy">
+              <h3 id="foodConnectionStatusText">No food accounts connected</h3>
+              <p id="foodSyncStatusText">Connect Swiggy or Zomato and sync to load real order history and cravings.</p>
+            </div>
+            <div class="uber-connect-card__actions">
+              <button class="secondary-cta" id="connectSwiggyBtn" type="button">Connect Swiggy</button>
+              <button class="secondary-cta" id="connectZomatoBtn" type="button">Connect Zomato</button>
+              <button class="primary-cta primary-cta--amber" id="syncFoodHistoryBtn" type="button">Sync Food History</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="section-stack">
+          <div class="section-heading section-heading--space">
+            <h2>Predicted Cravings</h2>
+            <span class="section-note">NEXT 2-4 HOURS</span>
+          </div>
+          <div class="cravings-grid" id="foodCravingsGrid">
+            <article class="craving-card">
+              <div class="craving-thumb craving-thumb--coffee"></div>
+              <div class="craving-card__copy">
+                <span>WAITING FOR DATA</span>
+                <h3>Connect a food provider</h3>
+                <p>Craving predictions appear after syncing order history.</p>
+              </div>
+              <span class="activity-row__chevron">›</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="section-stack">
+          <div class="section-heading section-heading--space">
+            <h2>Recent Orders</h2>
+            <button class="text-link" id="viewAllFoodHistoryBtn" type="button">View All</button>
+          </div>
+          <div class="orders-list" id="foodOrdersList">
+            <article class="order-row">
+              <div class="order-row__icon order-row__icon--amber">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 4v8" />
+                  <path d="M10 4v8" />
+                  <path d="M7 8h3" />
+                  <path d="M14 4v5" />
+                  <path d="M17 4v16" />
+                </svg>
+              </div>
+              <div class="order-row__copy">
+                <h3>Waiting for order sync</h3>
+                <p>Connect and sync Swiggy or Zomato to load your recent orders.</p>
+              </div>
+              <button class="reorder-button" type="button" disabled>REORDER</button>
+            </article>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <section class="browser-viewer hidden" id="browserViewer" aria-live="polite">
+      <div class="browser-viewer__header">
+        <div class="browser-viewer__dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="browser-viewer__url" id="browserUrl">Open an account login to begin</div>
+        <button class="icon-button" id="closeBrowserViewer" type="button" aria-label="Close account login viewer">×</button>
+      </div>
+      <div class="browser-viewer__body">
+        <img class="browser-viewer__image" id="browserScreenshot" alt="Provider login session" />
+      </div>
+      <div class="browser-viewer__input-row">
+        <input id="browserInput" type="text" placeholder="Type while focused in the login window. Enter, Tab, and arrows are supported." autocomplete="off" />
+      </div>
+    </section>
+
+    <section class="history-modal hidden" id="rideHistoryModal" role="dialog" aria-modal="true" aria-labelledby="rideHistoryModalTitle">
+      <div class="history-modal__card">
+        <div class="history-modal__header">
+          <h3 id="rideHistoryModalTitle">All Ride History</h3>
+          <button class="icon-button" id="closeRideHistoryModal" type="button" aria-label="Close ride history window">×</button>
+        </div>
+        <p class="history-modal__meta" id="rideHistoryModalMeta"></p>
+        <div class="history-modal__body" id="rideHistoryModalBody"></div>
+      </div>
+    </section>
+
+    <section class="history-modal hidden" id="foodHistoryModal" role="dialog" aria-modal="true" aria-labelledby="foodHistoryModalTitle">
+      <div class="history-modal__card">
+        <div class="history-modal__header">
+          <h3 id="foodHistoryModalTitle">All Food History</h3>
+          <button class="icon-button" id="closeFoodHistoryModal" type="button" aria-label="Close food history window">×</button>
+        </div>
+        <p class="history-modal__meta" id="foodHistoryModalMeta"></p>
+        <div class="history-modal__body" id="foodHistoryModalBody"></div>
+      </div>
+    </section>
+
+    <section class="landing-overlay hidden" id="landingOverlay" role="dialog" aria-modal="true" aria-labelledby="landingTitle">
+      <div class="landing-card">
+        <p class="eyebrow">Get Started</p>
+        <h2 id="landingTitle">Personalize your assistant</h2>
+        <p>Log in with your email to continue, and we will use your info for naming across the app.</p>
+        <form id="landingForm" class="landing-form">
+          <label for="landingEmail">Email</label>
+          <input id="landingEmail" type="email" placeholder="you@example.com" required autocomplete="email" />
+
+          <label for="landingName">Name (optional)</label>
+          <input id="landingName" type="text" placeholder="How should we address you?" autocomplete="name" />
+
+          <button class="primary-cta" type="submit">Continue</button>
+          <p class="landing-error hidden" id="landingError"></p>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Uber Window Prototype</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --panel: rgba(255, 252, 245, 0.92);
+      --ink: #1c1712;
+      --muted: #655e56;
+      --line: rgba(28, 23, 18, 0.88);
+      --accent: #7cc0a6;
+      --accent-strong: #387a63;
+      --warn: #f3c76b;
+      --shadow: 0 18px 50px rgba(45, 32, 20, 0.14);
+      --radius-xl: 34px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --font-display: "Trebuchet MS", "Avenir Next", sans-serif;
+      --font-body: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(124, 192, 166, 0.22), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(243, 199, 107, 0.22), transparent 24%),
+        var(--bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      padding: 28px;
+    }
+
+    .app-shell {
+      max-width: 1220px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 2px solid var(--line);
+      border-radius: 36px;
+      box-shadow: var(--shadow);
+      padding: 34px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .app-shell::before,
+    .app-shell::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      border: 1px solid rgba(28, 23, 18, 0.08);
+      pointer-events: none;
+    }
+
+    .app-shell::before {
+      width: 240px;
+      height: 240px;
+      top: -120px;
+      right: -80px;
+    }
+
+    .app-shell::after {
+      width: 180px;
+      height: 180px;
+      bottom: -90px;
+      left: -60px;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(2.2rem, 5vw, 4.4rem);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+    }
+
+    .hero p {
+      margin: 10px 0 0;
+      max-width: 620px;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border: 1.5px solid var(--line);
+      border-radius: 999px;
+      padding: 10px 16px;
+      background: rgba(255, 255, 255, 0.74);
+      font-size: 0.95rem;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--warn);
+      box-shadow: 0 0 0 6px rgba(243, 199, 107, 0.2);
+      transition: background 180ms ease;
+    }
+
+    .status-dot.connected {
+      background: var(--accent-strong);
+      box-shadow: 0 0 0 6px rgba(56, 122, 99, 0.18);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .card {
+      border: 2px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 10px 24px rgba(31, 22, 14, 0.07);
+    }
+
+    .sidebar {
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .suggestion-copy {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    .why {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stat {
+      border: 1.5px solid rgba(28, 23, 18, 0.16);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .stat-label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stat-value {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    .field-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .field input {
+      border: 1.5px solid rgba(28, 23, 18, 0.22);
+      border-radius: 14px;
+      padding: 14px 15px;
+      font: inherit;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .button-row,
+    .mini-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button,
+    .link-button {
+      appearance: none;
+      border: 1.5px solid var(--line);
+      border-radius: 999px;
+      padding: 12px 16px;
+      font: inherit;
+      cursor: pointer;
+      transition: transform 180ms ease, background 180ms ease, color 180ms ease, box-shadow 180ms ease;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button:hover,
+    .link-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button-primary {
+      background: var(--ink);
+      color: #fff;
+      box-shadow: 0 10px 18px rgba(28, 23, 18, 0.18);
+    }
+
+    .button-secondary {
+      background: transparent;
+      color: var(--ink);
+    }
+
+    .button-soft {
+      background: rgba(124, 192, 166, 0.18);
+      color: var(--ink);
+    }
+
+    .workspace {
+      min-height: 660px;
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .workspace-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      padding: 8px 6px 0;
+    }
+
+    .workspace-title {
+      display: grid;
+      gap: 4px;
+    }
+
+    .workspace-title h2 {
+      margin: 0;
+      font-size: 1.15rem;
+    }
+
+    .workspace-title p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .browser-frame {
+      position: relative;
+      border: 2px solid var(--line);
+      border-radius: 28px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(250, 247, 241, 0.98), rgba(244, 239, 230, 0.94));
+      min-height: 560px;
+    }
+
+    .browser-chrome {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(28, 23, 18, 0.12);
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .chrome-dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .chrome-dots span {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: rgba(28, 23, 18, 0.18);
+    }
+
+    .address-bar {
+      flex: 1;
+      border: 1px solid rgba(28, 23, 18, 0.14);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.9);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .frame-body {
+      position: relative;
+      min-height: 504px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.06)),
+        radial-gradient(circle at 50% 20%, rgba(124, 192, 166, 0.16), transparent 34%);
+    }
+
+    iframe {
+      width: 100%;
+      min-height: 504px;
+      border: 0;
+      display: none;
+      background: #fff;
+    }
+
+    .embed-state {
+      position: absolute;
+      inset: 0;
+      padding: 28px;
+      display: grid;
+      place-items: center;
+    }
+
+    .embed-panel {
+      max-width: 580px;
+      text-align: center;
+      border: 1.5px solid rgba(28, 23, 18, 0.18);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 16px 30px rgba(45, 32, 20, 0.1);
+      padding: 28px;
+    }
+
+    .embed-panel h3 {
+      margin: 0 0 10px;
+      font-size: 1.55rem;
+      line-height: 1.1;
+    }
+
+    .embed-panel p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .embed-note {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(243, 199, 107, 0.22);
+      color: #5b4622;
+      font-size: 0.94rem;
+      text-align: left;
+    }
+
+    .footer-note {
+      margin-top: 2px;
+      padding: 0 6px 4px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 980px) {
+      body {
+        padding: 16px;
+      }
+
+      .app-shell {
+        padding: 20px;
+      }
+
+      .hero,
+      .workspace-top {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace {
+        min-height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero">
+      <div>
+        <h1>Hello Jamie</h1>
+        <p>
+          A fast Uber-only prototype for your proactive ride assistant. It looks and feels like an in-product Uber window,
+          but uses the closest viable flow browsers actually allow today.
+        </p>
+      </div>
+      <div class="status-pill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Uber not connected</span>
+      </div>
+    </section>
+
+    <section class="layout">
+      <aside class="card sidebar">
+        <p class="suggestion-copy">Looking for a ride to work?</p>
+        <p class="why">
+          You usually leave around 9:15 AM on weekdays. Traffic is running 20 minutes above normal, so leaving now is recommended.
+        </p>
+
+        <div class="stat-grid">
+          <article class="stat">
+            <span class="stat-label">Usual Leave Time</span>
+            <span class="stat-value">9:15 AM</span>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Traffic Delta</span>
+            <span class="stat-value">+20 min</span>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Ride Type</span>
+            <span class="stat-value">UberX</span>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Current ETA</span>
+            <span class="stat-value">6 min away</span>
+          </article>
+        </div>
+
+        <div class="field-list">
+          <div class="field">
+            <label for="clientId">Uber client ID</label>
+            <input id="clientId" placeholder="Paste Uber developer client ID for deeplinks" />
+          </div>
+          <div class="field">
+            <label for="pickup">Pickup</label>
+            <input id="pickup" value="1455 Market St, San Francisco, CA 94103" />
+          </div>
+          <div class="field">
+            <label for="dropoff">Destination</label>
+            <input id="dropoff" value="1 Telegraph Hill Blvd, San Francisco, CA 94133" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button class="button-primary" id="connectButton" type="button">Connect Uber Account</button>
+          <button class="button-secondary" id="previewButton" type="button">Refresh Handoff</button>
+        </div>
+
+        <div class="mini-actions">
+          <a class="link-button button-soft" id="openUberLink" href="https://m.uber.com/looking" target="_blank" rel="noreferrer">Open Uber</a>
+          <button class="button-secondary" id="confirmButton" type="button">Confirm Ride</button>
+        </div>
+      </aside>
+
+      <section class="card workspace">
+        <div class="workspace-top">
+          <div class="workspace-title">
+            <h2>Uber Handoff Window</h2>
+            <p>Attempt inline preview, then fall back to the supported Uber launch path.</p>
+          </div>
+          <div class="status-pill">
+            <span class="status-dot connected"></span>
+            <span>Prototype mode</span>
+          </div>
+        </div>
+
+        <div class="browser-frame">
+          <div class="browser-chrome">
+            <div class="chrome-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="address-bar" id="addressBar">https://m.uber.com/looking</div>
+          </div>
+
+          <div class="frame-body">
+            <iframe id="uberFrame" title="Uber preview window"></iframe>
+            <div class="embed-state" id="embedState">
+              <div class="embed-panel">
+                <h3 id="embedTitle">Connect Uber to continue</h3>
+                <p id="embedDescription">
+                  This panel is designed to hold an Uber handoff. Once connected, we generate an Uber deep link with your ride details.
+                </p>
+                <div class="button-row" style="justify-content:center;">
+                  <button class="button-primary" id="inlineAttemptButton" type="button">Try Inline Window</button>
+                  <a class="link-button button-secondary" id="fallbackLink" href="https://m.uber.com/looking" target="_blank" rel="noreferrer">Open in New Tab</a>
+                </div>
+                <div class="embed-note" id="embedNote">
+                  Research note: Uber’s old embeddable widget was deprecated. The current rider experience uses deep links, and
+                  `m.uber.com` responds with `X-Frame-Options: SAMEORIGIN`, which prevents a true iframe embed from another origin.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="footer-note" id="footerNote">
+          Recommended demo framing: keep this as a branded Uber handoff panel inside your product. Let users review the suggestion here, then launch Uber in a new tab or mobile deep link for the final native flow.
+        </p>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      connected: false,
+      confirmed: false,
+    };
+
+    const clientIdInput = document.getElementById("clientId");
+    const pickupInput = document.getElementById("pickup");
+    const dropoffInput = document.getElementById("dropoff");
+    const connectButton = document.getElementById("connectButton");
+    const previewButton = document.getElementById("previewButton");
+    const confirmButton = document.getElementById("confirmButton");
+    const inlineAttemptButton = document.getElementById("inlineAttemptButton");
+    const openUberLink = document.getElementById("openUberLink");
+    const fallbackLink = document.getElementById("fallbackLink");
+    const statusDot = document.getElementById("statusDot");
+    const statusLabel = document.getElementById("statusLabel");
+    const embedState = document.getElementById("embedState");
+    const embedTitle = document.getElementById("embedTitle");
+    const embedDescription = document.getElementById("embedDescription");
+    const embedNote = document.getElementById("embedNote");
+    const footerNote = document.getElementById("footerNote");
+    const addressBar = document.getElementById("addressBar");
+    const uberFrame = document.getElementById("uberFrame");
+
+    const encodeRideLocation = (addressLine1) =>
+      JSON.stringify({
+        addressLine1,
+      });
+
+    const buildUberUrl = () => {
+      const clientId = clientIdInput.value.trim();
+      const pickup = pickupInput.value.trim();
+      const dropoff = dropoffInput.value.trim();
+      const base = "https://m.uber.com/looking";
+      const params = new URLSearchParams();
+
+      if (clientId) {
+        params.set("client_id", clientId);
+      }
+
+      if (pickup) {
+        params.set("pickup", encodeRideLocation(pickup));
+      }
+
+      if (dropoff) {
+        params.set("drop[0]", encodeRideLocation(dropoff));
+      }
+
+      const query = params.toString();
+      return query ? `${base}?${query}` : base;
+    };
+
+    const syncLinks = () => {
+      const url = buildUberUrl();
+      openUberLink.href = url;
+      fallbackLink.href = url;
+      addressBar.textContent = url;
+      return url;
+    };
+
+    const setConnectedState = (connected) => {
+      state.connected = connected;
+      statusDot.classList.toggle("connected", connected);
+      statusLabel.textContent = connected ? "Uber connected" : "Uber not connected";
+      connectButton.textContent = connected ? "Reconnect Uber Account" : "Connect Uber Account";
+      embedTitle.textContent = connected ? "Uber connection ready" : "Connect Uber to continue";
+      embedDescription.textContent = connected
+        ? "Your proactive assistant can now prepare an Uber ride handoff with pre-filled trip details."
+        : "This panel is designed to hold an Uber handoff. Once connected, we generate an Uber deep link with your ride details.";
+    };
+
+    const showInlineBlockedState = () => {
+      const url = syncLinks();
+      uberFrame.style.display = "block";
+      uberFrame.src = url;
+      embedState.style.display = "grid";
+      embedTitle.textContent = "Inline Uber window blocked";
+      embedDescription.textContent =
+        "The preview attempted to load, but browsers block Uber from being embedded in a third-party iframe. The supported path is to launch Uber in a new tab or native app handoff.";
+      embedNote.textContent =
+        "Verified constraint: m.uber.com sends X-Frame-Options: SAMEORIGIN, so a true embedded Uber web app window is not allowed from your platform.";
+      footerNote.textContent =
+        "Best implementation choice: keep the suggestion, editable route, and confirm state inside your product, then hand off to Uber with a deep link.";
+    };
+
+    const markConfirmed = () => {
+      state.confirmed = true;
+      confirmButton.textContent = "Confirmed";
+      confirmButton.disabled = true;
+      confirmButton.classList.remove("button-secondary");
+      confirmButton.classList.add("button-soft");
+      footerNote.textContent =
+        "Ride confirmed in your platform. For the assignment, this is enough: show the confirmed state here without automating the final booking flow.";
+    };
+
+    connectButton.addEventListener("click", () => {
+      setConnectedState(true);
+      syncLinks();
+      embedState.style.display = "grid";
+      embedTitle.textContent = "Uber connection ready";
+      embedDescription.textContent =
+        "The ride handoff is ready. You can try an inline preview to demonstrate the browser limitation, or open Uber directly.";
+    });
+
+    previewButton.addEventListener("click", () => {
+      syncLinks();
+      if (state.connected) {
+        embedState.style.display = "grid";
+        embedTitle.textContent = "Handoff refreshed";
+        embedDescription.textContent =
+          "Trip details updated. Use the inline attempt to show what is technically blocked, then use the supported Uber launch.";
+      }
+    });
+
+    inlineAttemptButton.addEventListener("click", showInlineBlockedState);
+    confirmButton.addEventListener("click", markConfirmed);
+
+    [clientIdInput, pickupInput, dropoffInput].forEach((input) => {
+      input.addEventListener("input", syncLinks);
+    });
+
+    setConnectedState(false);
+    syncLinks();
+  </script>
+</body>
+</html>
