@@ -1,15 +1,15 @@
 :root {
-  --bg: #090d14;
-  --bg-alt: #0e131d;
-  --panel: #121923;
-  --panel-soft: #1a222d;
-  --panel-strong: #232c38;
-  --panel-elevated: #2a313d;
-  --text: #f2f5fb;
-  --muted: #a3adba;
-  --muted-strong: #c9d2dd;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.14);
+  --bg: #0f0e0d;
+  --bg-alt: #141312;
+  --panel: #1b1918;
+  --panel-soft: #211f1d;
+  --panel-strong: #282523;
+  --panel-elevated: #2e2c29;
+  --text: #eae4e0;
+  --muted: #afaaa6;
+  --muted-strong: #cbc6bd;
+  --line: rgba(120, 117, 113, 0.22);
+  --line-strong: rgba(120, 117, 113, 0.34);
   --cyan: #72ddf5;
   --cyan-strong: #1ed8ff;
   --cyan-soft: rgba(30, 216, 255, 0.18);
@@ -40,10 +40,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(30, 216, 255, 0.09), transparent 24%),
-    radial-gradient(circle at top right, rgba(247, 170, 55, 0.08), transparent 22%),
-    linear-gradient(180deg, #0a0f18 0%, #070b11 100%);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;

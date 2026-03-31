@@ -1,10 +1,12 @@
 """FastAPI application: serves frontend and provider integrations."""
 
+import base64
+import json
 import logging
 import os
 from typing import Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +26,8 @@ app = FastAPI(title="Proactive Ride Assistant", version="1.0.0")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+AUTH_COOKIE_NAME = "proactive_assistant_auth"
+
 
 # ── Startup / Shutdown ────────────────────────────────────────────────────────
 
@@ -42,10 +46,73 @@ async def shutdown():
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 
+def _login_path() -> str:
+    return "/login"
+
+
+def _encode_auth_cookie(profile: dict) -> str:
+    payload = json.dumps(profile, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii")
+
+
+def _decode_auth_cookie(raw_cookie: Optional[str]) -> Optional[dict]:
+    if not raw_cookie:
+        return None
+
+    try:
+        padded = raw_cookie + "=" * (-len(raw_cookie) % 4)
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        profile = json.loads(decoded)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(profile, dict):
+        return None
+
+    identifier = str(profile.get("identifier") or "").strip()
+    if not identifier:
+        return None
+
+    return {
+        "identifier": identifier,
+        "firstName": str(profile.get("firstName") or "").strip(),
+        "fullName": str(profile.get("fullName") or "").strip(),
+    }
+
+
+def _auth_profile_from_request(request: Request) -> Optional[dict]:
+    return _decode_auth_cookie(request.cookies.get(AUTH_COOKIE_NAME))
+
+
+def _set_auth_cookie(response: JSONResponse, profile: dict) -> None:
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=_encode_auth_cookie(profile),
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if _auth_profile_from_request(request):
+        return RedirectResponse(url="/", status_code=303)
+
+    login_path = os.path.join(STATIC_DIR, "login.html")
+    with open(login_path, "r") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.get("/rides", response_class=HTMLResponse)
 @app.get("/food", response_class=HTMLResponse)
-def serve_index():
+def serve_index(request: Request):
+    if not _auth_profile_from_request(request):
+        return RedirectResponse(url=_login_path(), status_code=303)
+
     index_path = os.path.join(STATIC_DIR, "index.html")
     with open(index_path, "r") as f:
         return HTMLResponse(content=f.read())
@@ -78,6 +145,46 @@ def health():
 
 def _error_response(message: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"error": message})
+
+
+class LoginPayload(BaseModel):
+    identifier: str
+    full_name: str = ""
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    profile = _auth_profile_from_request(request)
+    return {"authenticated": bool(profile), "profile": profile}
+
+
+@app.post("/api/auth/login")
+def auth_login(payload: LoginPayload):
+    identifier = payload.identifier.strip()
+    full_name = payload.full_name.strip()
+    if not identifier:
+        return _error_response("Email or phone number is required.")
+
+    first_name = full_name.split()[0] if full_name else identifier.split("@")[0].split(".")[0].split("_")[0].split("-")[0]
+    first_name = (first_name or "there").strip()
+    first_name = first_name[:1].upper() + first_name[1:]
+
+    profile = {
+        "identifier": identifier,
+        "firstName": first_name,
+        "fullName": full_name,
+    }
+
+    response = JSONResponse(content={"ok": True, "redirect_to": "/", "profile": profile})
+    _set_auth_cookie(response, profile)
+    return response
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    response = JSONResponse(content={"ok": True, "redirect_to": _login_path()})
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    return response
 
 
 # ── Uber Login (Browser-based with screenshot streaming) ─────────────────────

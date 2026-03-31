@@ -1,6 +1,8 @@
 const HEADERS = {"ngrok-skip-browser-warning": "true"};
 
 const API = {
+  authStatus: () => get("/api/auth/status"),
+  logout: () => post("/api/auth/logout"),
   suggestion: (lat, lng) => get(`/api/ride/suggestion${lat != null ? `?lat=${lat}&lng=${lng}` : ""}`),
   patterns: () => get("/api/ride/patterns"),
   history: (limit = 8, offset = 0) => get(`/api/uber/history?limit=${limit}&offset=${offset}`),
@@ -34,7 +36,6 @@ const API = {
 };
 
 const ROUTES = new Set(["/", "/rides", "/food"]);
-const PROFILE_STORAGE_KEY = "proactive_assistant_profile_v1";
 
 const state = {
   suggestion: null,
@@ -62,15 +63,11 @@ const browserState = {
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
-  bindLandingForm();
-
-  const hasProfile = loadSavedProfile();
-  if (!hasProfile) {
-    showLandingOverlay();
+  const authenticated = await loadAuthProfile();
+  if (!authenticated) {
+    window.location.assign("/login");
     return;
   }
-
-  hideLandingOverlay();
   await startMainApp();
 });
 
@@ -89,76 +86,19 @@ async function startMainApp() {
   renderDashboard();
 }
 
-function bindLandingForm() {
-  const form = document.getElementById("landingForm");
-  const profileBtn = document.querySelector(".icon-button--profile");
-
-  if (profileBtn) {
-    profileBtn.addEventListener("click", () => {
-      prefillLandingForm();
-      showLandingOverlay();
-    });
-  }
-
-  if (!form) return;
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const emailInput = document.getElementById("landingEmail");
-    const nameInput = document.getElementById("landingName");
-    const errorEl = document.getElementById("landingError");
-
-    const email = String(emailInput?.value || "").trim().toLowerCase();
-    const typedName = String(nameInput?.value || "").trim();
-
-    if (!isValidEmail(email)) {
-      if (errorEl) {
-        const msg = errorEl.querySelector("p") || errorEl;
-        msg.textContent = "Please enter a valid email address.";
-        errorEl.classList.remove("hidden");
-      }
-      return;
-    }
-
-    const firstName = buildFirstName(typedName, email);
-    state.userProfile = {
-      email,
-      firstName,
-      fullName: typedName || firstName,
-    };
-
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(state.userProfile));
-    applyProfileToGreeting();
-
-    if (errorEl) {
-      const msg = errorEl.querySelector("p") || errorEl;
-      msg.textContent = "";
-      errorEl.classList.add("hidden");
-    }
-
-    hideLandingOverlay();
-    await startMainApp();
-  });
-}
-
-function loadSavedProfile() {
-  const heading = document.getElementById("homeGreetingHeading");
-  if (!heading) return false;
-
+async function loadAuthProfile() {
   try {
-    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
-    if (!raw) return false;
+    const data = await API.authStatus();
+    if (!data?.authenticated || !data?.profile) {
+      return false;
+    }
 
-    const saved = JSON.parse(raw);
-    if (!saved || !isValidEmail(saved.email)) return false;
-
+    const profile = data.profile;
     state.userProfile = {
-      email: String(saved.email).toLowerCase(),
-      firstName: saved.firstName || buildFirstName(saved.fullName || "", saved.email),
-      fullName: saved.fullName || saved.firstName || "",
+      identifier: profile.identifier || "",
+      firstName: profile.firstName || buildFirstName(profile.fullName || "", profile.identifier || ""),
+      fullName: profile.fullName || profile.firstName || "",
     };
-
     applyProfileToGreeting();
     return true;
   } catch {
@@ -175,35 +115,12 @@ function applyProfileToGreeting() {
   heading.textContent = `${timeBased}${name}`;
 }
 
-function prefillLandingForm() {
-  const emailInput = document.getElementById("landingEmail");
-  const nameInput = document.getElementById("landingName");
-  if (emailInput && state.userProfile?.email) emailInput.value = state.userProfile.email;
-  if (nameInput && state.userProfile?.fullName) nameInput.value = state.userProfile.fullName;
-}
-
-function showLandingOverlay() {
-  const overlay = document.getElementById("landingOverlay");
-  if (!overlay) return;
-  overlay.classList.remove("hidden");
-  updateBodyScrollLock();
-}
-
-function hideLandingOverlay() {
-  const overlay = document.getElementById("landingOverlay");
-  if (!overlay) return;
-  overlay.classList.add("hidden");
-  updateBodyScrollLock();
-}
-
 function updateBodyScrollLock() {
-  const landingOverlay = document.getElementById("landingOverlay");
   const historyModal = document.getElementById("rideHistoryModal");
   const foodHistoryModal = document.getElementById("foodHistoryModal");
-  const landingOpen = Boolean(landingOverlay && !landingOverlay.classList.contains("hidden"));
   const historyOpen = Boolean(historyModal && !historyModal.classList.contains("hidden"));
   const foodHistoryOpen = Boolean(foodHistoryModal && !foodHistoryModal.classList.contains("hidden"));
-  document.body.classList.toggle("no-scroll", landingOpen || historyOpen || foodHistoryOpen);
+  document.body.classList.toggle("no-scroll", historyOpen || foodHistoryOpen);
 }
 
 async function openRideHistoryModal() {
@@ -420,10 +337,6 @@ function capitalize(value) {
   if (!value) return "there";
   const normalized = String(value);
   return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
-}
-
-function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function bindRouting() {

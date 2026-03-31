@@ -80,9 +80,15 @@
   <style>
     .font-serif { font-family: "Newsreader", serif; }
     .grain-overlay {
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      pointer-events: none; z-index: 99; opacity: 0.04;
-      background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuCzBM2ew2GowrNgUJj_J9otLt07xYmKlZydwDRucg8fMNYPaEEf8FM7QaFJik1XZNpOCQpnud_cWiEfiz5HEFQcP6TdTndAMjABlb7yLpOfLTOdtvm8ZENbUxEbgg535kJq6y8-uk8gl2ZxU8mavEyg73ZEGlyubjJXCwlCrXqGbPesXpY-5J38B6TFmc6qtO-KToV6M4OyTYeUGd9FfSwgnh3sztq2ujfU8lNGBg3NmCaFegLT5_v5GIyeVRoNComQ6xeZdmBXGjw);
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
     }
     .material-symbols-outlined {
       font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
@@ -92,277 +98,376 @@
 </head>
 <body>
   <div class="app-shell">
+    <div class="grain-overlay"></div>
     <div class="toast hidden" id="toast"></div>
 
     <section class="screen" data-route="/">
-      <header class="topbar">
-        <button class="brand-button route-link" data-route-target="/" aria-label="Go to home">
-          <span class="brand-mark">PROACTIVE ASSISTANT</span>
+      <header class="fixed left-1/2 top-0 z-40 flex w-[min(1540px,calc(100%-3rem))] -translate-x-1/2 items-center justify-between bg-[#0f0e0d]/70 px-6 py-5 backdrop-blur-md md:px-8">
+        <button class="route-link text-left" data-route-target="/" type="button" aria-label="Go to home">
+          <span class="font-headline text-2xl italic tracking-tight text-primary">Assistant</span>
         </button>
-        <div class="topbar-actions">
-          <button class="icon-button" type="button" aria-label="Live context">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 12a7 7 0 0 1 14 0" />
-              <path d="M2 12a10 10 0 0 1 20 0" />
-              <path d="M8 12a4 4 0 0 1 8 0" />
-              <circle cx="12" cy="16" r="1.5" />
-            </svg>
+        <div class="flex items-center gap-3 md:gap-6">
+          <button class="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant/40 text-primary transition-colors hover:bg-surface-container-high" type="button" aria-label="Live context">
+            <span class="material-symbols-outlined text-[22px]">sensors</span>
           </button>
-          <button class="icon-button icon-button--profile" type="button" aria-label="Profile">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="8" r="3.5" />
-              <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
-            </svg>
+          <button class="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant/40 text-primary transition-colors hover:bg-surface-container-high" type="button" aria-label="Profile">
+            <span class="material-symbols-outlined text-[22px]">account_circle</span>
           </button>
         </div>
       </header>
 
-      <main class="page page-home">
-        <section class="hero-copy">
-          <p class="eyebrow">Friday night mode</p>
-          <h1 id="homeGreetingHeading">Welcome</h1>
-          <p>Your Friday night operations are primed.</p>
+      <main class="mx-auto w-full max-w-7xl px-6 pb-36 pt-32 md:px-10 xl:px-16">
+        <section class="mb-16 md:mb-20">
+          <p class="mb-4 font-label text-xs uppercase tracking-[0.35em] text-on-surface-variant">Proactive Evening Brief</p>
+          <h1 id="homeGreetingHeading" class="max-w-5xl font-headline text-5xl italic leading-[0.98] text-on-surface md:text-7xl">
+            Welcome
+          </h1>
+          <p class="mt-6 max-w-2xl text-base leading-7 text-on-surface-variant md:text-lg">
+            Your proactive assistant has mapped the next best ride and dining moves for the evening.
+          </p>
         </section>
 
-        <section class="assistant-grid">
-          <article class="feature-card feature-card--rides route-link" data-route-target="/rides" role="button" tabindex="0" aria-label="Open rides assistant">
-            <div class="feature-card__badge">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="4" y="9" width="16" height="8" rx="2" />
-                <path d="M7 9V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" />
-                <circle cx="8" cy="17.5" r="1.3" />
-                <circle cx="16" cy="17.5" r="1.3" />
-              </svg>
-            </div>
-            <div class="feature-card__content">
-              <h2>Travelling Somewhere?</h2>
-              <p>Quick rides based on your routine</p>
-              <span class="feature-chip" id="homeRideChip">HOME IN 12M</span>
-            </div>
-          </article>
-
-          <article class="feature-card feature-card--food route-link" data-route-target="/food" role="button" tabindex="0" aria-label="Open food assistant">
-            <div class="feature-card__badge feature-card__badge--amber">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M7 4v8" />
-                <path d="M10 4v8" />
-                <path d="M7 8h3" />
-                <path d="M14 4v5" />
-                <path d="M17 4v16" />
-              </svg>
-            </div>
-            <div class="feature-card__content">
-              <h2>Hungry?</h2>
-              <p>Cravings predicted for your Friday night</p>
-              <span class="feature-chip feature-chip--amber">SUSHI PREDICTED</span>
-            </div>
-          </article>
-        </section>
-
-        <section class="spotlight-card">
-          <div class="spotlight-card__header">
+        <section class="mb-16 grid grid-cols-1 gap-8 xl:grid-cols-2 xl:gap-10">
+          <article class="flex min-h-[420px] flex-col justify-between border border-outline-variant/20 bg-surface-container-low p-8 shadow-[0_30px_80px_rgba(0,0,0,0.28)] md:p-10">
             <div>
-              <p class="spotlight-kicker">LOOKING FOR...</p>
-            </div>
-            <div class="spotlight-card__glyph" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-          </div>
-
-          <div class="spotlight-grid">
-            <article class="spotlight-panel">
-              <p class="spotlight-panel__label">LOGISTICS</p>
-              <div class="spotlight-panel__body">
-                <div class="spotlight-panel__icon">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M8 6v12" />
-                    <path d="M16 6v12" />
-                    <path d="M12 9v6" />
-                  </svg>
+              <div class="mb-10 flex items-start justify-between gap-4">
+                <span class="material-symbols-outlined text-4xl text-primary">directions_car</span>
+                <span class="font-label text-[10px] uppercase tracking-[0.25em] text-on-surface-variant">Logistics Suggestion</span>
+              </div>
+              <div class="max-w-xl space-y-5">
+                <h2 id="logisticsTitle" class="font-headline text-3xl leading-tight text-on-surface md:text-4xl">
+                  ETA Home: 18:45
+                </h2>
+                <p id="logisticsText" class="max-w-lg text-sm leading-7 text-on-surface-variant md:text-base">
+                  Optimal route via Main St.
+                </p>
+                <div class="inline-flex items-center border border-primary/25 bg-primary/10 px-4 py-2 font-label text-[10px] uppercase tracking-[0.28em] text-primary">
+                  <span id="homeRideChip">HOME IN 12M</span>
                 </div>
-                <div>
-                  <h3 id="logisticsTitle">ETA Home: 18:45</h3>
-                  <p id="logisticsText">Optimal route via Main St.</p>
+                <div class="space-y-3 border-t border-outline-variant/20 pt-5 text-sm text-on-surface-variant">
+                  <div class="flex items-center justify-between gap-6">
+                    <span class="font-medium text-on-surface">Pickup</span>
+                    <span>Your current location</span>
+                  </div>
+                  <div class="flex items-center justify-between gap-6">
+                    <span class="font-medium text-on-surface">Drop</span>
+                    <span>Context shown below</span>
+                  </div>
+                  <div class="flex items-center justify-between gap-6">
+                    <span class="font-medium text-on-surface">Assistant mode</span>
+                    <span>Route optimized</span>
+                  </div>
                 </div>
               </div>
-              <button class="panel-cta panel-cta--cyan route-link" data-route-target="/rides" type="button">CONFIRM RIDE</button>
-            </article>
+            </div>
+            <div class="mt-8 flex flex-wrap items-center gap-3">
+              <button class="panel-cta--cyan route-link bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-route-target="/rides" type="button">
+                Confirm Ride
+              </button>
+              <button class="route-link border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-route-target="/rides" type="button">
+                Delay 15m
+              </button>
+              <button class="route-link border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-route-target="/rides" type="button">
+                Explore More
+              </button>
+            </div>
+          </article>
 
-            <article class="spotlight-panel">
-              <p class="spotlight-panel__label">NUTRITION</p>
-              <div class="spotlight-panel__body">
-                <div class="spotlight-panel__icon spotlight-panel__icon--amber">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 20s-6-3.3-6-8.3A3.7 3.7 0 0 1 12 9a3.7 3.7 0 0 1 6 2.7C18 16.7 12 20 12 20Z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3>4.9★ Local Pick</h3>
-                  <p>Matching your sushi profile.</p>
+          <article class="flex min-h-[420px] flex-col justify-between border border-outline-variant/20 bg-surface-container-low p-8 shadow-[0_30px_80px_rgba(0,0,0,0.28)] md:p-10">
+            <div>
+              <div class="mb-10 flex items-start justify-between gap-4">
+                <span class="material-symbols-outlined text-4xl text-primary">restaurant</span>
+                <span class="font-label text-[10px] uppercase tracking-[0.25em] text-on-surface-variant">Nutrition Curated</span>
+              </div>
+              <div class="max-w-xl space-y-5">
+                <h2 class="font-headline text-3xl leading-tight text-on-surface md:text-4xl">
+                  A dining suggestion is ready for tonight.
+                </h2>
+                <p class="max-w-lg text-sm leading-7 text-on-surface-variant md:text-base">
+                  Your synced food patterns and current timing point to a fast, reliable order or a sit-down reservation with minimal wait.
+                </p>
+                <div class="space-y-3 border-t border-outline-variant/20 pt-5 text-sm text-on-surface-variant">
+                  <div class="flex items-center justify-between gap-6">
+                    <span class="font-medium text-on-surface">Recommendation</span>
+                    <span>Personalized from history</span>
+                  </div>
+                  <div class="flex items-center justify-between gap-6">
+                    <span class="font-medium text-on-surface">Timing</span>
+                    <span>Matched to your schedule</span>
+                  </div>
+                  <div class="flex items-center justify-between gap-6">
+                    <span class="font-medium text-on-surface">Providers</span>
+                    <span>Swiggy and Zomato ready</span>
+                  </div>
                 </div>
               </div>
-              <button class="panel-cta panel-cta--amber route-link" data-route-target="/food" type="button">CONFIRM ORDER</button>
-            </article>
-          </div>
-
-          <div class="spotlight-card__footer">
-            <p>Both assistants are optimized for your current location &amp; time.</p>
-            <button class="text-link route-link" data-route-target="/rides" type="button">VIEW DETAILS</button>
-          </div>
+            </div>
+            <div class="mt-8 flex flex-wrap items-center gap-3">
+              <button class="panel-cta--amber route-link bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-route-target="/food" type="button">
+                Confirm Order
+              </button>
+              <button class="route-link border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-route-target="/food" type="button">
+                Reschedule
+              </button>
+              <button class="route-link border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-route-target="/food" type="button">
+                Explore More
+              </button>
+            </div>
+          </article>
         </section>
 
-        <section class="home-bottom-grid">
+        <section class="grid grid-cols-1 gap-12 border-t border-outline-variant/15 pt-14 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)] lg:gap-16">
           <div>
-            <div class="section-heading">
-              <h2>RECENT ACTIVITY</h2>
+            <div class="mb-8 flex items-center justify-between gap-4">
+              <h2 class="font-headline text-3xl italic text-on-surface">Recent Activity</h2>
+              <button class="route-link font-label text-[10px] uppercase tracking-[0.24em] text-on-surface-variant transition-colors hover:text-primary" data-route-target="/rides" type="button">
+                View Details
+              </button>
             </div>
-            <div class="activity-list" id="homeActivityList">
-              <article class="activity-row">
-                <div class="activity-row__icon">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 7v5l3 2" />
-                    <circle cx="12" cy="12" r="8" />
-                    <path d="M8 4l-2 2" />
-                  </svg>
+            <div id="homeActivityList" class="space-y-5">
+              <article class="flex items-start gap-4 border-b border-outline-variant/10 pb-5">
+                <span class="pt-1 font-label text-[10px] uppercase tracking-[0.2em] text-on-surface-variant">Now</span>
+                <div>
+                  <h3 class="text-sm font-medium text-on-surface">Loading latest activity...</h3>
+                  <p class="mt-1 text-sm text-on-surface-variant">Fetching your latest ride from history.</p>
                 </div>
-                <div class="activity-row__copy">
-                  <h3>Loading latest activity...</h3>
-                  <p>Fetching your latest ride from history.</p>
-                </div>
-                <span class="activity-row__chevron">›</span>
               </article>
             </div>
           </div>
 
-          <div>
-            <div class="section-heading">
-              <h2>LIVE CONTEXT</h2>
-            </div>
-            <article class="context-card">
-              <div class="map-orb"></div>
-              <div class="context-card__label">
-                <strong>CURRENT POSITION</strong>
-                <span id="contextLocation">SoMa District</span>
+          <article class="relative overflow-hidden border border-outline-variant/20 bg-surface-container-low p-8 md:p-10">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(203,198,189,0.18),transparent_34%),linear-gradient(135deg,rgba(73,70,64,0.25),transparent_55%)]"></div>
+            <div class="relative flex h-full min-h-[320px] flex-col justify-between gap-10">
+              <div class="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p class="mb-2 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface-variant">Live Context</p>
+                  <h2 class="font-headline text-3xl italic text-on-surface md:text-4xl">Ambient conditions are steady.</h2>
+                </div>
+                <div class="text-left md:text-right">
+                  <p class="mb-2 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface-variant">Current Position</p>
+                  <p id="contextLocation" class="text-sm text-on-surface md:text-base">SoMa District</p>
+                </div>
               </div>
-            </article>
-          </div>
+              <div class="grid gap-4 text-sm text-on-surface-variant md:grid-cols-3">
+                <div>
+                  <p class="mb-1 font-label text-[10px] uppercase tracking-[0.22em] text-on-surface-variant">Atmosphere</p>
+                  <p class="text-on-surface">Soft focus, active routing</p>
+                </div>
+                <div>
+                  <p class="mb-1 font-label text-[10px] uppercase tracking-[0.22em] text-on-surface-variant">Assistant Pulse</p>
+                  <p class="text-on-surface">Monitoring rides and food timing</p>
+                </div>
+                <div>
+                  <p class="mb-1 font-label text-[10px] uppercase tracking-[0.22em] text-on-surface-variant">Readiness</p>
+                  <p class="text-on-surface">Ready for the next confirmation</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-4">
+                <div class="relative h-[2px] flex-1 bg-outline-variant/30">
+                  <div class="absolute inset-y-0 left-0 w-2/3 bg-primary"></div>
+                </div>
+                <span class="font-label text-[10px] uppercase tracking-[0.2em] text-on-surface-variant">System steady</span>
+              </div>
+            </div>
+          </article>
         </section>
       </main>
+
+      <nav class="fixed bottom-0 left-1/2 z-40 flex w-[min(1540px,calc(100%-3rem))] -translate-x-1/2 items-center justify-around bg-[#0f0e0d]/70 px-6 pb-6 pt-3 backdrop-blur-md">
+        <button class="route-link flex flex-col items-center justify-center border-t-2 border-primary pt-2 text-primary" data-route-target="/" type="button">
+          <span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1, 'wght' 300, 'GRAD' 0, 'opsz' 24;">auto_awesome</span>
+          <span class="mt-1 font-label text-[10px] uppercase tracking-[0.22em]">Curated</span>
+        </button>
+        <button class="route-link flex flex-col items-center justify-center pt-2 text-on-surface-variant transition-colors hover:text-primary" data-route-target="/rides" type="button">
+          <span class="material-symbols-outlined text-[22px]">directions_car</span>
+          <span class="mt-1 font-label text-[10px] uppercase tracking-[0.22em]">Rides</span>
+        </button>
+        <button class="route-link flex flex-col items-center justify-center pt-2 text-on-surface-variant transition-colors hover:text-primary" data-route-target="/food" type="button">
+          <span class="material-symbols-outlined text-[22px]">restaurant</span>
+          <span class="mt-1 font-label text-[10px] uppercase tracking-[0.22em]">Dining</span>
+        </button>
+      </nav>
     </section>
 
     <section class="screen hidden" data-route="/rides">
-      <header class="topbar">
-        <button class="brand-button route-link brand-button--titlecase" data-route-target="/" aria-label="Go to home">
-          <span class="brand-mark">RideAssistant</span>
+      <header class="fixed left-1/2 top-0 z-40 flex w-[min(1540px,calc(100%-3rem))] -translate-x-1/2 items-center justify-between bg-[#0f0e0d]/80 px-6 py-5 backdrop-blur-md md:px-8">
+        <button class="route-link text-left" data-route-target="/" type="button" aria-label="Go to home">
+          <span class="font-headline text-2xl italic tracking-tight text-primary">Assistant</span>
         </button>
-        <div class="context-pill context-pill--cyan">
-          <span class="context-pill__dot"></span>
-          <span>LIVE TRAFFIC</span>
-        </div>
-        <div class="topbar-actions">
-          <button class="icon-button" type="button" aria-label="Live context">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 12a7 7 0 0 1 14 0" />
-              <path d="M2 12a10 10 0 0 1 20 0" />
-              <path d="M8 12a4 4 0 0 1 8 0" />
-              <circle cx="12" cy="16" r="1.5" />
-            </svg>
+        <div class="flex items-center gap-3 md:gap-6">
+          <button class="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-primary" type="button" aria-label="Live context">
+            <span class="material-symbols-outlined text-[22px]">sensors</span>
           </button>
-          <button class="icon-button" type="button" aria-label="Profile">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="8" r="3.5" />
-              <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
-            </svg>
+          <button class="flex h-10 w-10 items-center justify-center rounded-full text-primary transition-opacity hover:opacity-80" type="button" aria-label="Profile">
+            <span class="material-symbols-outlined text-[22px]">account_circle</span>
           </button>
         </div>
       </header>
 
-      <main class="page page-rides">
-        <section class="hero-panel hero-panel--rides">
-          <div class="hero-panel__content">
-            <span class="mini-pill mini-pill--cyan">SMART SUGGESTION</span>
-            <h1>Looking for a ride?</h1>
-            <p id="ridesHeroText">Heading to Downtown Studio? Traffic is light, 12 mins to arrival.</p>
-            <div class="hero-actions">
-              <button class="primary-cta" id="bookRideNow" type="button">Book Now <span>→</span></button>
-              <button class="secondary-cta" id="scheduleRide" type="button">Schedule</button>
-            </div>
-          </div>
-          <div class="hero-panel__eta">
-            <div class="hero-panel__eta-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12 19 5l-4 14-3.5-5.5Z" />
-              </svg>
-            </div>
-            <div>
-              <span>ETA</span>
-              <strong id="rideEtaLabel">12 MINS</strong>
-            </div>
-          </div>
-          <div class="map-pin" aria-hidden="true"></div>
-        </section>
+      <main class="mx-auto w-full max-w-[1500px] px-8 pb-36 pt-32 md:px-12 xl:px-16">
+        <div class="grid grid-cols-1 items-start gap-14 xl:grid-cols-[minmax(560px,1.05fr)_minmax(620px,1.15fr)]">
+          <div class="space-y-10 min-w-0">
+            <section>
+              <h1 class="mb-6 font-headline text-5xl leading-tight text-primary md:text-6xl">
+                Looking for a ride?
+              </h1>
+              <div class="max-w-md space-y-4">
+                <p id="ridesHeroText" class="font-headline text-lg italic leading-relaxed text-on-surface-variant">
+                  Heading to Downtown Studio? Traffic is light, 12 mins to arrival.
+                </p>
+                <p class="leading-relaxed text-on-surface-variant">
+                  I&apos;ve prepared your next route and a few dependable alternatives based on live traffic and your recent patterns.
+                </p>
+              </div>
+            </section>
 
-        <section class="section-stack" id="ridePatternsSection">
-          <div class="section-heading section-heading--space">
-            <h2>Commute Patterns</h2>
-            <span class="section-tag">Weekly Analysis</span>
-          </div>
-          <div class="pattern-card-grid" id="ridePatternCards">
-            <article class="pattern-card pattern-card--cyan">
-              <div class="pattern-card__icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="5" y="6" width="14" height="12" rx="2" />
-                  <path d="M9 6V4h6v2" />
-                </svg>
+            <section class="border border-outline-variant/10 bg-surface-container-low p-8">
+              <div class="mb-6 flex items-end justify-between gap-4">
+                <span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Recommended Option</span>
+                <span class="font-label text-[10px] uppercase tracking-widest text-primary">Best Value</span>
               </div>
-              <span class="pattern-card__tag">4X THIS WEEK</span>
-              <h3>Tech Hub HQ</h3>
-              <p>Typical start: 08:45 AM</p>
-              <div class="pattern-card__footer">
-                <span class="pattern-bar"></span>
-                <strong>Book Fast</strong>
-              </div>
-            </article>
-          </div>
-        </section>
 
-        <section class="section-stack">
-          <div class="section-heading section-heading--space">
-            <h2>Uber Account</h2>
-            <span class="section-tag" id="uberConnectionTag">Checking status</span>
-          </div>
-          <article class="uber-connect-card">
-            <div class="uber-connect-card__copy">
-              <h3 id="uberLoginStatusText">Uber account not connected</h3>
-              <p id="uberSyncStatusText">Connect and sync to use actual ride history in recent activity.</p>
-            </div>
-            <div class="uber-connect-card__actions">
-              <button class="secondary-cta" id="connectUberBtn" type="button">Connect Uber Account</button>
-              <button class="primary-cta" id="syncUberBtn" type="button">Sync Ride History</button>
-            </div>
-          </article>
-        </section>
+              <div class="space-y-4 border-y border-outline-variant/20 py-4">
+                <div class="flex gap-4">
+                  <div class="flex flex-col items-center pt-1">
+                    <div class="h-2 w-2 rounded-full border border-primary"></div>
+                    <div class="my-1 h-8 w-px bg-outline-variant/30"></div>
+                    <div class="h-2 w-2 bg-primary"></div>
+                  </div>
+                  <div class="space-y-4">
+                    <div>
+                      <p class="mb-0.5 text-[10px] uppercase tracking-widest text-on-surface-variant">Pickup</p>
+                      <p class="text-sm font-medium text-on-surface">Current location</p>
+                    </div>
+                    <div>
+                      <p class="mb-0.5 text-[10px] uppercase tracking-widest text-on-surface-variant">Drop-off</p>
+                      <p class="text-sm font-medium text-on-surface">Suggested destination</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-        <section class="section-stack">
-          <div class="section-heading section-heading--space">
-            <h2>Recent History</h2>
-            <button class="text-link" id="viewAllRideHistoryBtn" type="button">View All</button>
-          </div>
-          <div class="history-list" id="rideHistoryList">
-            <article class="history-row">
-              <div class="history-thumb history-thumb--car"></div>
-              <div class="history-row__copy">
-                <h3>Downtown Studio</h3>
-                <p>Today, 02:30 PM • Completed</p>
+              <div class="group flex items-center justify-between pt-6">
+                <div class="space-y-1">
+                  <h3 class="font-headline text-2xl italic text-on-surface">Book your next ride</h3>
+                  <p class="text-sm text-on-surface-variant">Departure optimized with live traffic context.</p>
+                </div>
+                <div class="text-right">
+                  <p id="rideEtaLabel" class="text-2xl font-light tracking-tight text-primary">12 MINS</p>
+                  <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">Estimated Arrival</p>
+                </div>
               </div>
-              <div class="history-row__meta">
-                <strong>₹1,175.00</strong>
-                <span>›</span>
+
+              <div class="mt-6 flex flex-wrap gap-3">
+                <button class="w-full bg-primary py-4 font-label text-[10px] font-bold uppercase tracking-widest text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98] sm:w-auto sm:min-w-[180px]" id="bookRideNow" type="button">
+                  Book Now
+                </button>
+                <button class="border border-outline-variant px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface transition-colors hover:bg-surface-container-high" id="scheduleRide" type="button">
+                  Schedule
+                </button>
               </div>
-            </article>
+            </section>
+
+            <section id="ridePatternsSection" class="space-y-8 pt-4">
+              <div class="flex items-center justify-between gap-4 border-b border-outline-variant/20 pb-2">
+                <h2 class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Alternative Carriers</h2>
+                <span class="font-label text-[10px] uppercase tracking-widest text-primary">Live options</span>
+              </div>
+              <div id="ridePatternCards" class="space-y-3">
+                <article class="flex items-center justify-between gap-4 p-2 text-on-surface transition-colors duration-200 hover:bg-surface-container-low">
+                  <div class="flex items-center gap-4">
+                    <div class="flex h-10 w-10 items-center justify-center bg-surface-container-high text-secondary">
+                      <span class="material-symbols-outlined">directions_car</span>
+                    </div>
+                    <div>
+                      <p class="font-headline text-lg italic">Loading options</p>
+                      <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">Waiting for ride data</p>
+                    </div>
+                  </div>
+                  <p class="font-body text-on-surface">...</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="border border-outline-variant/10 bg-surface-container-low p-8">
+              <div class="mb-6 flex items-center justify-between gap-4">
+                <h2 class="font-headline text-2xl italic text-on-surface">Uber Account</h2>
+                <span class="font-label text-[10px] uppercase tracking-widest text-primary" id="uberConnectionTag">Checking status</span>
+              </div>
+              <div class="space-y-6">
+                <div>
+                  <h3 id="uberLoginStatusText" class="text-lg font-medium text-on-surface">Uber account not connected</h3>
+                  <p id="uberSyncStatusText" class="mt-2 text-sm leading-relaxed text-on-surface-variant">Connect and sync to use actual ride history in recent activity.</p>
+                </div>
+                <div class="flex flex-wrap gap-3">
+                  <button class="border border-outline-variant px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface transition-colors hover:bg-surface-container-high" id="connectUberBtn" type="button">
+                    Connect Uber Account
+                  </button>
+                  <button class="bg-primary px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" id="syncUberBtn" type="button">
+                    Sync Ride History
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-6">
+              <div class="flex items-center justify-between gap-4">
+                <h2 class="font-headline text-2xl italic text-on-surface">Recent History</h2>
+                <button class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant transition-colors hover:text-primary" id="viewAllRideHistoryBtn" type="button">
+                  View All
+                </button>
+              </div>
+              <div id="rideHistoryList" class="space-y-3">
+                <article class="flex items-center justify-between gap-4 border border-outline-variant/10 bg-surface-container-low p-4">
+                  <div>
+                    <h3 class="text-sm font-medium text-on-surface">Waiting for ride history</h3>
+                    <p class="mt-1 text-sm text-on-surface-variant">Connect and sync Uber to load recent trips.</p>
+                  </div>
+                  <span class="text-on-surface-variant">›</span>
+                </article>
+              </div>
+            </section>
           </div>
-        </section>
+
+          <div class="h-[640px] min-w-0 xl:sticky xl:top-32 xl:h-[860px]">
+            <div class="relative h-full w-full overflow-hidden bg-surface-container-low">
+              <img alt="Elegant minimalist dark city map with thin street lines and soft glow along the route, cinematic lighting" class="h-full w-full object-cover grayscale opacity-60 mix-blend-luminosity" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDR6rw1dvzQE1vCwy6PznIoaK233Udfw_UyYZR8W__IE7QgBGKGqftxaykrmGZOdR768rBb1NvAiBA4Ra5fImk46UxZKq2YDshcK9LXMmtOw0lf3PP-vozAZIpoXtHiXr87STy366bOoYL7Uubl-O53_lSEed8t8-cGKzX8FSU6qZGVyBxRbVbTUl0YKsb9GB6T_wnLy3WrkQ4OWkilWlNvL5RIIwjppDpo8lj94EFqyS8MBwaKK0p2oD_2vDdZkXuXWWIWkOy1Y0s" />
+              <div class="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent"></div>
+
+              <div class="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div class="h-4 w-4 bg-primary ring-8 ring-primary/20 animate-pulse"></div>
+                <div class="mt-4 bg-surface-container-highest/60 px-3 py-1 backdrop-blur-md">
+                  <span class="font-label text-[10px] uppercase tracking-widest text-primary">Current Congestion</span>
+                </div>
+              </div>
+
+              <div class="absolute right-6 top-6 border-l-2 border-primary bg-surface-bright/80 p-6 backdrop-blur-lg md:right-12 md:top-12">
+                <p class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Destination</p>
+                <p class="mt-2 font-headline text-xl text-on-surface">Recommended route</p>
+                <p class="mt-2 flex items-center gap-2 text-sm font-medium text-error">
+                  <span class="material-symbols-outlined text-sm">warning</span>
+                  Heavy Traffic
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
+
+      <nav class="fixed bottom-0 left-1/2 z-40 flex w-[min(1540px,calc(100%-3rem))] -translate-x-1/2 items-center justify-around bg-[#0f0e0d]/80 px-6 pb-6 pt-3 backdrop-blur-md">
+        <button class="route-link flex flex-col items-center justify-center pt-2 text-on-surface-variant transition-colors hover:text-primary" data-route-target="/" type="button">
+          <span class="material-symbols-outlined mb-1 text-[22px]">auto_awesome</span>
+          <span class="font-label text-[10px] uppercase tracking-[0.22em]">Curated</span>
+        </button>
+        <button class="route-link flex flex-col items-center justify-center border-t-2 border-primary pt-2 text-primary" data-route-target="/rides" type="button">
+          <span class="material-symbols-outlined mb-1 text-[22px]">directions_car</span>
+          <span class="font-label text-[10px] uppercase tracking-[0.22em]">Rides</span>
+        </button>
+        <button class="route-link flex flex-col items-center justify-center pt-2 text-on-surface-variant transition-colors hover:text-primary" data-route-target="/food" type="button">
+          <span class="material-symbols-outlined mb-1 text-[22px]">restaurant</span>
+          <span class="font-label text-[10px] uppercase tracking-[0.22em]">Dining</span>
+        </button>
+      </nav>
     </section>
 
     <section class="screen hidden" data-route="/food">
@@ -512,8 +617,6 @@
     </section>
 
     <section id="landingOverlay" class="hidden fixed inset-0 z-50 bg-background text-on-background flex flex-col md:flex-row overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="landingTitle">
-      <div class="grain-overlay"></div>
-
       <!-- LEFT: Editorial Brand Image -->
       <div class="hidden md:flex md:w-1/2 lg:w-3/5 h-screen relative bg-surface-container-low overflow-hidden">
         <img
