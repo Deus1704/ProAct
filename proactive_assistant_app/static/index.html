@@ -1,12 +1,93 @@
 <!DOCTYPE html>
-<html lang="en">
+<html class="dark" lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Proactive Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&family=Inter:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-container-lowest": "#000000",
+            "surface-tint": "#cbc6bd",
+            "tertiary-fixed-dim": "#e5dbd2",
+            "surface-container-high": "#211f1d",
+            "primary-fixed-dim": "#d9d4cb",
+            "on-primary": "#43403a",
+            "inverse-surface": "#fdf8f6",
+            "outline-variant": "#4a4744",
+            "error-container": "#7e2b17",
+            "tertiary-fixed": "#f3e9e0",
+            "on-background": "#eae4e0",
+            "error": "#ed7f64",
+            "surface": "#0f0e0d",
+            "primary": "#cbc6bd",
+            "secondary-dim": "#a39d94",
+            "outline": "#787571",
+            "secondary-fixed-dim": "#dbd3ca",
+            "on-tertiary": "#645e57",
+            "tertiary-dim": "#e5dbd2",
+            "primary-container": "#494640",
+            "on-secondary": "#23201a",
+            "surface-dim": "#0f0e0d",
+            "on-surface-variant": "#afaaa6",
+            "background": "#0f0e0d",
+            "on-secondary-fixed-variant": "#605b54",
+            "secondary-fixed": "#e9e1d8",
+            "on-tertiary-fixed-variant": "#666059",
+            "surface-container-low": "#141312",
+            "on-primary-fixed": "#423f39",
+            "tertiary-container": "#f3e9e0",
+            "on-primary-container": "#d5d0c7",
+            "on-tertiary-fixed": "#49443d",
+            "secondary-container": "#3f3b34",
+            "error-dim": "#ba573f",
+            "on-secondary-container": "#c5beb5",
+            "inverse-on-surface": "#575553",
+            "secondary": "#a39d94",
+            "on-secondary-fixed": "#433f38",
+            "on-error-container": "#ff9b82",
+            "surface-container-highest": "#282523",
+            "surface-bright": "#2e2c29",
+            "on-surface": "#eae4e0",
+            "surface-container": "#1b1918",
+            "tertiary": "#fff8f3",
+            "on-error": "#450900",
+            "on-primary-fixed-variant": "#5e5b54",
+            "surface-variant": "#282523",
+            "inverse-primary": "#625f58",
+            "primary-fixed": "#e8e2d9",
+            "primary-dim": "#bdb8b0",
+            "on-tertiary-container": "#5c564f"
+          },
+          fontFamily: {
+            "headline": ["Newsreader"],
+            "body": ["Inter"],
+            "label": ["Inter"]
+          },
+          borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+        },
+      },
+    }
+  </script>
+  <style>
+    .font-serif { font-family: "Newsreader", serif; }
+    .grain-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 99; opacity: 0.04;
+      background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuCzBM2ew2GowrNgUJj_J9otLt07xYmKlZydwDRucg8fMNYPaEEf8FM7QaFJik1XZNpOCQpnud_cWiEfiz5HEFQcP6TdTndAMjABlb7yLpOfLTOdtvm8ZENbUxEbgg535kJq6y8-uk8gl2ZxU8mavEyg73ZEGlyubjJXCwlCrXqGbPesXpY-5J38B6TFmc6qtO-KToV6M4OyTYeUGd9FfSwgnh3sztq2ujfU8lNGBg3NmCaFegLT5_v5GIyeVRoNComQ6xeZdmBXGjw);
+    }
+    .material-symbols-outlined {
+      font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+    }
+  </style>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
@@ -430,22 +511,120 @@
       </div>
     </section>
 
-    <section class="landing-overlay hidden" id="landingOverlay" role="dialog" aria-modal="true" aria-labelledby="landingTitle">
-      <div class="landing-card">
-        <p class="eyebrow">Get Started</p>
-        <h2 id="landingTitle">Personalize your assistant</h2>
-        <p>Log in with your email to continue, and we will use your info for naming across the app.</p>
-        <form id="landingForm" class="landing-form">
-          <label for="landingEmail">Email</label>
-          <input id="landingEmail" type="email" placeholder="you@example.com" required autocomplete="email" />
+    <section id="landingOverlay" class="hidden fixed inset-0 z-50 bg-background text-on-background flex flex-col md:flex-row overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="landingTitle">
+      <div class="grain-overlay"></div>
 
-          <label for="landingName">Name (optional)</label>
-          <input id="landingName" type="text" placeholder="How should we address you?" autocomplete="name" />
-
-          <button class="primary-cta" type="submit">Continue</button>
-          <p class="landing-error hidden" id="landingError"></p>
-        </form>
+      <!-- LEFT: Editorial Brand Image -->
+      <div class="hidden md:flex md:w-1/2 lg:w-3/5 h-screen relative bg-surface-container-low overflow-hidden">
+        <img
+          alt="Cinematic editorial photography of a professional butler from the chest down, wearing a crisp white shirt, black vest, and carrying a silver tray. Moody, dramatic lighting with deep shadows."
+          class="absolute inset-0 w-full h-full object-cover opacity-70 mix-blend-luminosity"
+          src="https://lh3.googleusercontent.com/aida-public/AB6AXuCDf1BdNL-1mGgZGRdUEQvVmduVNizGBDCXg8ngoi0mNpp5CMRpbbn54P9MvicftiNjVxJvd5iwD0kdkoe0ZwFtuNJwIeBhPPvxzmaoSnNGwSHc7BaW6dvplLayd4V-jxu8ydMEiq-7RVxSnzterJNVKvUyEjtaelgDq8qc1cp4m5TINzjiAA3y6YUMwZMCGb-c5nlBC5w5q8cAtpJycWm-0CjY8Ld-a1JVaUXz50cGZU6d31r8bW4dUKpD0l5MLucEixwGzrY8dEU"
+        />
+        <div class="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent"></div>
+        <div class="relative z-10 flex flex-col justify-between p-16 h-full">
+          <div>
+            <span class="font-serif italic text-3xl text-primary tracking-tight">Assistant</span>
+          </div>
+          <div class="max-w-md">
+            <h1 class="font-serif text-6xl lg:text-7xl leading-tight text-primary mb-8">At your service.</h1>
+            <p class="font-body text-secondary-dim text-lg leading-relaxed max-w-sm">
+              The digital curator for your most ambitious journeys. Prepared, refined, and perpetually attentive.
+            </p>
+          </div>
+          <div class="flex gap-8 items-center text-[10px] uppercase tracking-[0.3em] text-outline">
+            <span>Discrete</span>
+            <span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+            <span>Curated</span>
+            <span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+            <span>Exquisite</span>
+          </div>
+        </div>
       </div>
+
+      <!-- RIGHT: Auth Panel -->
+      <main class="w-full md:w-1/2 lg:w-2/5 h-screen flex flex-col justify-center px-8 md:px-16 lg:px-24 bg-surface relative">
+        <!-- Mobile Logo -->
+        <div class="md:hidden absolute top-12 left-8">
+          <span class="font-serif italic text-2xl text-primary">Assistant</span>
+        </div>
+
+        <div class="w-full max-w-sm mx-auto space-y-12">
+          <!-- Error State -->
+          <div class="bg-error-container/20 p-5 flex items-start gap-4 ring-1 ring-error/20 hidden" id="landingError" role="alert">
+            <span class="material-symbols-outlined text-error text-xl">error_outline</span>
+            <p class="text-sm font-body text-error leading-snug"></p>
+          </div>
+
+          <!-- Auth Form -->
+          <form id="landingForm" class="space-y-10" novalidate>
+            <div class="space-y-6">
+              <label class="block font-serif text-3xl text-on-surface" id="landingTitle">Welcome back.</label>
+              <div class="relative group">
+                <input
+                  id="landingEmail"
+                  class="w-full bg-transparent border-0 border-b border-outline-variant py-4 px-0 focus:ring-0 focus:border-primary transition-all duration-500 placeholder:text-outline/40 font-body text-lg text-on-surface"
+                  placeholder="Email or phone number"
+                  type="email"
+                  autocomplete="email"
+                  required
+                />
+              </div>
+              <div class="relative group">
+                <input
+                  id="landingName"
+                  class="w-full bg-transparent border-0 border-b border-outline-variant py-4 px-0 focus:ring-0 focus:border-primary transition-all duration-500 placeholder:text-outline/40 font-body text-lg text-on-surface"
+                  placeholder="Name (optional)"
+                  type="text"
+                  autocomplete="name"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              class="w-full bg-primary text-on-primary font-body font-semibold py-5 text-sm uppercase tracking-widest transition-opacity hover:opacity-90 active:scale-[0.98] transition-transform duration-300"
+            >
+              Continue
+            </button>
+          </form>
+
+          <!-- Divider -->
+          <div class="relative flex items-center justify-center">
+            <div class="absolute inset-0 flex items-center">
+              <div class="w-full border-t border-outline-variant/30"></div>
+            </div>
+            <span class="relative bg-surface px-4 text-[10px] uppercase tracking-[0.2em] text-outline">Identification</span>
+          </div>
+
+          <!-- Social Logins -->
+          <div class="grid grid-cols-1 gap-4">
+            <button type="button" class="w-full flex items-center justify-between border border-outline-variant/30 py-4 px-6 hover:bg-surface-container-low transition-colors duration-300 group">
+              <div class="flex items-center gap-4">
+                <span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">google</span>
+                <span class="text-xs uppercase tracking-widest font-medium">Continue with Google</span>
+              </div>
+              <span class="material-symbols-outlined text-xs text-outline">chevron_right</span>
+            </button>
+            <button type="button" class="w-full flex items-center justify-between border border-outline-variant/30 py-4 px-6 hover:bg-surface-container-low transition-colors duration-300 group">
+              <div class="flex items-center gap-4">
+                <span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">ios</span>
+                <span class="text-xs uppercase tracking-widest font-medium">Continue with Apple</span>
+              </div>
+              <span class="material-symbols-outlined text-xs text-outline">chevron_right</span>
+            </button>
+          </div>
+
+          <!-- Footer -->
+          <div class="pt-8">
+            <p class="text-[10px] text-outline leading-loose uppercase tracking-widest text-center md:text-left">
+              By continuing, you agree to our <a class="underline hover:text-primary" href="#">Terms of Service</a> and <a class="underline hover:text-primary" href="#">Privacy Policy</a>.
+            </p>
+          </div>
+        </div>
+
+        <!-- Ambient glow -->
+        <div class="absolute -bottom-24 -right-24 w-64 h-64 bg-primary-container/10 blur-[100px] rounded-full pointer-events-none"></div>
+      </main>
     </section>
   </div>
 

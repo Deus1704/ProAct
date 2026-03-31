@@ -114,7 +114,8 @@ function bindLandingForm() {
 
     if (!isValidEmail(email)) {
       if (errorEl) {
-        errorEl.textContent = "Please enter a valid email address.";
+        const msg = errorEl.querySelector("p") || errorEl;
+        msg.textContent = "Please enter a valid email address.";
         errorEl.classList.remove("hidden");
       }
       return;
@@ -131,7 +132,8 @@ function bindLandingForm() {
     applyProfileToGreeting();
 
     if (errorEl) {
-      errorEl.textContent = "";
+      const msg = errorEl.querySelector("p") || errorEl;
+      msg.textContent = "";
       errorEl.classList.add("hidden");
     }
 
