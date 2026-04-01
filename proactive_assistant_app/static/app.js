@@ -49,6 +49,7 @@ const ROUTES = new Set(["/", "/rides", "/food"]);
 
 const state = {
   suggestion: null,
+  rideDraft: null,
   patterns: [],
   history: [],
   historyTotal: 0,
@@ -160,6 +161,40 @@ async function startMainApp() {
     }
     sessionStorage.removeItem("autoSyncProvider");
   }
+}
+
+function buildRideDraft(suggestion) {
+  if (!suggestion) {
+    return {pickup: "", dropoff: ""};
+  }
+  return {
+    pickup: suggestion.pickupLabel || "",
+    dropoff: suggestion.destinationLabel || "",
+  };
+}
+
+function getEditableRideLocationValues() {
+  const pickupInput = document.getElementById("ridePickupInput") || document.getElementById("homeRidePickupInput");
+  const dropoffInput = document.getElementById("rideDropoffInput") || document.getElementById("homeRideDropoffInput");
+  return {
+    pickup: String(pickupInput?.value || state.rideDraft?.pickup || state.suggestion?.pickupLabel || "").trim(),
+    dropoff: String(dropoffInput?.value || state.rideDraft?.dropoff || state.suggestion?.destinationLabel || "").trim(),
+  };
+}
+
+function syncRideDraftFromInputs() {
+  state.rideDraft = getEditableRideLocationValues();
+  return state.rideDraft;
+}
+
+function setEditableFieldValue(element, value, fallback = "") {
+  if (!element) return;
+  const nextValue = String(value || fallback || "");
+  if ("value" in element) {
+    element.value = nextValue;
+    return;
+  }
+  element.textContent = nextValue;
 }
 
 async function loadAuthProfile() {
@@ -352,13 +387,14 @@ async function submitRideDismissFeedback() {
   }
 
   const input = document.getElementById("rideDismissFeedbackInput");
+  const rideDraft = syncRideDraftFromInputs();
   const payload = {
     route_key: state.suggestion.route_key,
     reason: rideDismissState.reasonCode || "dismissed",
     reason_code: rideDismissState.reasonCode || null,
     feedback_text: input?.value?.trim() || null,
-    pickup: state.suggestion.pickup || null,
-    dropoff: state.suggestion.dropoff || null,
+    pickup: rideDraft.pickup || state.suggestion.pickup || state.suggestion.pickupLabel || null,
+    dropoff: rideDraft.dropoff || state.suggestion.dropoff || state.suggestion.destinationLabel || null,
     suggestion_payload: state.suggestion,
   };
 
@@ -381,14 +417,15 @@ async function handleHomeRideAction(action) {
 
   if (action === "confirm") {
     try {
+      const rideDraft = syncRideDraftFromInputs();
       const response = await API.rideConfirm({
         route_key: state.suggestion.route_key,
-        pickup: state.suggestion.pickup,
-        dropoff: state.suggestion.dropoff,
+        pickup: rideDraft.pickup || state.suggestion.pickup || state.suggestion.pickupLabel,
+        dropoff: rideDraft.dropoff || state.suggestion.dropoff || state.suggestion.destinationLabel,
         ride_type: state.suggestion.ride_type,
       });
       navigate("/rides");
-      showToast(`Ride confirmed for ${state.suggestion.dropoff || "your destination"}.`);
+      showToast(`Ride confirmed for ${rideDraft.dropoff || state.suggestion.dropoff || state.suggestion.destinationLabel || "your destination"}.`);
       const deeplink = response?.deeplink || state.suggestion?.deeplink;
       if (deeplink) {
         window.open(deeplink, "_blank", "noopener,noreferrer");
@@ -803,6 +840,25 @@ function bindActions() {
     });
   }
 
+  const rideLocationInputs = [
+    document.getElementById("homeRidePickupInput"),
+    document.getElementById("homeRideDropoffInput"),
+    document.getElementById("ridePickupInput"),
+    document.getElementById("rideDropoffInput"),
+  ].filter(Boolean);
+  rideLocationInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      syncRideDraftFromInputs();
+    });
+    input.addEventListener("change", () => {
+      syncRideDraftFromInputs();
+      if (isRideScreenVisible()) {
+        renderRidePage();
+      }
+      renderHomeSummary();
+    });
+  });
+
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeProfilePanel();
@@ -893,6 +949,7 @@ async function loadRideDataWithLocation(lat, lng) {
   ]);
 
   state.suggestion = normalizeRideSuggestion(readFulfilled(gpsDataResults[0])?.suggestion || null);
+  state.rideDraft = buildRideDraft(state.suggestion);
   state.foodSuggestion = normalizeFoodSuggestion(readFulfilled(gpsDataResults[1])?.suggestion || null);
   
   const restaurantsData = readFulfilled(gpsDataResults[2]);
@@ -1049,16 +1106,16 @@ function renderHomeSummary() {
     chip.textContent = `${shortAddress(activeRide.dropoffName || "Home").toUpperCase()} ${formatCountdown(activeRide.minutesUntilDeparture)}`;
     logisticsTitle.textContent = `Next ride to ${shortAddress(activeRide.dropoffName || "Home")}: ${formatClock(activeRide.departureAt)}`;
     logisticsText.textContent = activeRide.explanation || "Next likely ride based on your actual history.";
-    if (homeRidePickupValue) homeRidePickupValue.textContent = pickupDisplay || "Current location";
-    if (homeRideDropoffValue) homeRideDropoffValue.textContent = activeRide.dropoffName || "Suggested destination";
+    setEditableFieldValue(homeRidePickupValue, pickupDisplay || "Current location", "Current location");
+    setEditableFieldValue(homeRideDropoffValue, activeRide.dropoffName || "Suggested destination", "Suggested destination");
     if (homeRideMetaLabel) homeRideMetaLabel.textContent = activeRide.minutesUntilDeparture > 120 ? "Predicted departure" : "Leaving in";
     if (homeRideMetaValue) homeRideMetaValue.textContent = activeRide.minutesUntilDeparture > 120 ? formatDetailedDeparture(activeRide.departureAt) : formatCountdown(activeRide.minutesUntilDeparture);
   } else if (state.uberStatus?.connected) {
     chip.textContent = "AWAITING VALIDATION";
     logisticsTitle.textContent = "No validated ride prediction yet";
     logisticsText.textContent = "Your logistics card updates only after prediction and LLM validation complete.";
-    if (homeRidePickupValue) homeRidePickupValue.textContent = "Current location";
-    if (homeRideDropoffValue) homeRideDropoffValue.textContent = "Pending validation";
+    setEditableFieldValue(homeRidePickupValue, "Current location");
+    setEditableFieldValue(homeRideDropoffValue, "Pending validation");
     if (homeRideMetaLabel) homeRideMetaLabel.textContent = "Status";
     if (homeRideMetaValue) homeRideMetaValue.textContent = "Monitoring patterns";
   }
@@ -1280,8 +1337,8 @@ function renderRidePage() {
     if (trafficStatus) {
       trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">warning</span>${escapeHtml(trafficTone)}`;
     }
-    if (pickupLabel) pickupLabel.textContent = activeRide.pickupName;
-    if (dropoffLabel) dropoffLabel.textContent = activeRide.dropoffName;
+    setEditableFieldValue(pickupLabel, activeRide.pickupName || "Current location");
+    setEditableFieldValue(dropoffLabel, activeRide.dropoffName || "Suggested destination");
     if (recommendationTitle) recommendationTitle.textContent = activeRide.rideType || "Book your next ride";
     if (recommendationMeta) {
       recommendationMeta.textContent = activeRide.explanation || `Predicted departure from ${shortAddress(activeRide.pickupName)} to ${shortAddress(activeRide.dropoffName)}.`;
@@ -1299,8 +1356,8 @@ function renderRidePage() {
     if (trafficStatus) {
       trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">info</span>${waitingOnValidation ? "Live quote not ready yet" : "Account not connected"}`;
     }
-    if (pickupLabel) pickupLabel.textContent = "Current location";
-    if (dropoffLabel) dropoffLabel.textContent = waitingOnValidation ? "Pending live quote" : "Connect and sync history";
+    setEditableFieldValue(pickupLabel, "Current location");
+    setEditableFieldValue(dropoffLabel, waitingOnValidation ? "Pending live quote" : "Connect and sync history");
     if (recommendationTitle) recommendationTitle.textContent = waitingOnValidation ? "Fetching live Uber option" : "Ride prediction unavailable";
     if (recommendationMeta) {
       recommendationMeta.textContent = waitingOnValidation
@@ -2148,7 +2205,14 @@ async function geocodeAddress(address) {
 
 function getActiveRideContext() {
   const suggestion = state.suggestion || {};
+  const rideDraft = state.rideDraft || {};
   const history = Array.isArray(state.history) ? state.history : [];
+  const normalizedPickupDraft = String(rideDraft.pickup || "").trim().toLowerCase();
+  const normalizedDropoffDraft = String(rideDraft.dropoff || "").trim().toLowerCase();
+  const normalizedPickupSuggestion = String(suggestion.pickupLabel || "").trim().toLowerCase();
+  const normalizedDropoffSuggestion = String(suggestion.destinationLabel || "").trim().toLowerCase();
+  const pickupEdited = Boolean(normalizedPickupDraft && normalizedPickupDraft !== normalizedPickupSuggestion);
+  const dropoffEdited = Boolean(normalizedDropoffDraft && normalizedDropoffDraft !== normalizedDropoffSuggestion);
   const primaryHistory = history.find((ride) => {
     if (!ride) return false;
     const rideDestination = ride.dest_label || ride.dropoff_address;
@@ -2159,14 +2223,16 @@ function getActiveRideContext() {
   }) || history[0] || null;
 
   const pickupName = firstNonEmpty(
-    bestLocationLabel(suggestion.pickupLabel, primaryHistory?.pickup_address),
+    bestLocationLabel(rideDraft.pickup || suggestion.pickupLabel, primaryHistory?.pickup_address),
+    rideDraft.pickup,
     suggestion.pickupLabel,
     primaryHistory?.pickup_address,
     "Current location"
   );
   const dropoffName = firstNonEmpty(
+    rideDraft.dropoff,
     bestLocationLabel(
-      suggestion.destinationLabel,
+      rideDraft.dropoff || suggestion.destinationLabel,
       primaryHistory?.dest_label,
       primaryHistory?.dropoff_address,
       state.patterns?.[0]?.dropoff
@@ -2180,16 +2246,16 @@ function getActiveRideContext() {
 
   // Get coordinates from all possible sources (may be null)
   const pickupLat = toCoordinate(
-    suggestion.pickupLat ?? state.userLat ?? primaryHistory?.origin_lat ?? primaryHistory?.pickup_lat
+    pickupEdited ? null : (suggestion.pickupLat ?? state.userLat ?? primaryHistory?.origin_lat ?? primaryHistory?.pickup_lat)
   );
   const pickupLng = toCoordinate(
-    suggestion.pickupLng ?? state.userLng ?? primaryHistory?.origin_lng ?? primaryHistory?.pickup_lng
+    pickupEdited ? null : (suggestion.pickupLng ?? state.userLng ?? primaryHistory?.origin_lng ?? primaryHistory?.pickup_lng)
   );
   const dropoffLat = toCoordinate(
-    suggestion.dropoffLat ?? primaryHistory?.dest_lat ?? primaryHistory?.dropoff_lat
+    dropoffEdited ? null : (suggestion.dropoffLat ?? primaryHistory?.dest_lat ?? primaryHistory?.dropoff_lat)
   );
   const dropoffLng = toCoordinate(
-    suggestion.dropoffLng ?? primaryHistory?.dest_lng ?? primaryHistory?.dropoff_lng
+    dropoffEdited ? null : (suggestion.dropoffLng ?? primaryHistory?.dest_lng ?? primaryHistory?.dropoff_lng)
   );
 
   return {

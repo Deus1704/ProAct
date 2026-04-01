@@ -219,11 +219,11 @@
                 <div class="space-y-3 border-t border-outline-variant/20 pt-5 text-sm text-on-surface-variant">
                   <div class="flex items-center justify-between gap-6">
                     <span class="font-medium text-on-surface">Pickup</span>
-                    <span id="homeRidePickupValue">Your current location</span>
+                    <input id="homeRidePickupValue" type="text" value="Your current location" class="w-full max-w-[280px] rounded border border-outline-variant/30 bg-surface-container-high/40 px-3 py-2 text-right text-sm text-on-surface outline-none transition-colors placeholder:text-on-surface-variant focus:border-primary" />
                   </div>
                   <div class="flex items-center justify-between gap-6">
                     <span class="font-medium text-on-surface">Drop</span>
-                    <span id="homeRideDropoffValue">Context shown below</span>
+                    <input id="homeRideDropoffValue" type="text" value="Context shown below" class="w-full max-w-[280px] rounded border border-outline-variant/30 bg-surface-container-high/40 px-3 py-2 text-right text-sm text-on-surface outline-none transition-colors placeholder:text-on-surface-variant focus:border-primary" />
                   </div>
                   <div class="flex items-center justify-between gap-6">
                     <span class="font-medium text-on-surface" id="homeRideMetaLabel">Departure</span>
@@ -491,11 +491,11 @@
                   <div class="space-y-4">
                     <div>
                       <p class="mb-0.5 text-[10px] uppercase tracking-widest text-on-surface-variant">Pickup</p>
-                      <p class="text-sm font-medium text-on-surface" id="ridePickupLabel">Current location</p>
+                      <input id="ridePickupLabel" type="text" value="Current location" class="w-full min-w-0 max-w-[360px] rounded border border-outline-variant/30 bg-surface-container-high/40 px-3 py-2 text-sm font-medium text-on-surface outline-none transition-colors placeholder:text-on-surface-variant focus:border-primary" />
                     </div>
                     <div>
                       <p class="mb-0.5 text-[10px] uppercase tracking-widest text-on-surface-variant">Drop-off</p>
-                      <p class="text-sm font-medium text-on-surface" id="rideDropoffLabel">Suggested destination</p>
+                      <input id="rideDropoffLabel" type="text" value="Suggested destination" class="w-full min-w-0 max-w-[360px] rounded border border-outline-variant/30 bg-surface-container-high/40 px-3 py-2 text-sm font-medium text-on-surface outline-none transition-colors placeholder:text-on-surface-variant focus:border-primary" />
                     </div>
                   </div>
                 </div>
