@@ -64,6 +64,22 @@ def init_db():
                 route_key TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS ride_feedback_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_identifier TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                pickup_address TEXT,
+                dropoff_address TEXT,
+                reason_code TEXT,
+                feedback_text TEXT,
+                dismiss_count INTEGER NOT NULL DEFAULT 1,
+                suggestion_payload TEXT,
+                last_seen_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(user_identifier, route_key)
+            );
+
             CREATE TABLE IF NOT EXISTS food_order_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 external_order_id TEXT,
@@ -99,6 +115,10 @@ def init_db():
                 ON ride_interactions(action_type);
             CREATE INDEX IF NOT EXISTS idx_interactions_route
                 ON ride_interactions(route_key);
+            CREATE INDEX IF NOT EXISTS idx_ride_feedback_user_updated
+                ON ride_feedback_memory(user_identifier, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ride_feedback_route_user
+                ON ride_feedback_memory(route_key, user_identifier);
             CREATE INDEX IF NOT EXISTS idx_food_history_weekday_hour
                 ON food_order_history(weekday, hour_of_day);
             CREATE INDEX IF NOT EXISTS idx_food_history_timestamp
@@ -463,3 +483,92 @@ def get_confirmation_count_for_route(route_key: str) -> int:
         ).fetchone()
         return row["cnt"]
 
+
+def upsert_ride_feedback_memory(
+    user_identifier: str,
+    route_key: str,
+    pickup_address: str | None = None,
+    dropoff_address: str | None = None,
+    reason_code: str | None = None,
+    feedback_text: str | None = None,
+    suggestion_payload: dict | None = None,
+) -> dict:
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO ride_feedback_memory (
+                user_identifier,
+                route_key,
+                pickup_address,
+                dropoff_address,
+                reason_code,
+                feedback_text,
+                dismiss_count,
+                suggestion_payload,
+                last_seen_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(user_identifier, route_key) DO UPDATE SET
+                pickup_address = COALESCE(excluded.pickup_address, ride_feedback_memory.pickup_address),
+                dropoff_address = COALESCE(excluded.dropoff_address, ride_feedback_memory.dropoff_address),
+                reason_code = COALESCE(excluded.reason_code, ride_feedback_memory.reason_code),
+                feedback_text = CASE
+                    WHEN excluded.feedback_text IS NOT NULL AND excluded.feedback_text != ''
+                        THEN excluded.feedback_text
+                    ELSE ride_feedback_memory.feedback_text
+                END,
+                suggestion_payload = COALESCE(excluded.suggestion_payload, ride_feedback_memory.suggestion_payload),
+                dismiss_count = ride_feedback_memory.dismiss_count + 1,
+                last_seen_at = datetime('now'),
+                updated_at = datetime('now')
+            """,
+            (
+                user_identifier,
+                route_key,
+                pickup_address,
+                dropoff_address,
+                reason_code,
+                feedback_text,
+                json.dumps(suggestion_payload) if suggestion_payload else None,
+            ),
+        )
+        row = conn.execute(
+            """SELECT * FROM ride_feedback_memory
+               WHERE user_identifier = ? AND route_key = ?""",
+            (user_identifier, route_key),
+        ).fetchone()
+        return dict(row) if row else {}
+
+
+def get_ride_feedback_memory(user_identifier: str, route_key: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT * FROM ride_feedback_memory
+               WHERE user_identifier = ? AND route_key = ?""",
+            (user_identifier, route_key),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_recent_ride_feedback_memories(user_identifier: str, limit: int = 12) -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM ride_feedback_memory
+               WHERE user_identifier = ?
+               ORDER BY updated_at DESC
+               LIMIT ?""",
+            (user_identifier, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_recent_dismissed_route_keys_for_user(user_identifier: str, hours: int = 168) -> list[str]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT route_key FROM ride_feedback_memory
+               WHERE user_identifier = ? AND updated_at >= datetime('now', ?)
+               ORDER BY updated_at DESC""",
+            (user_identifier, f"-{int(hours)} hours"),
+        ).fetchall()
+        return [str(r["route_key"]) for r in rows if r["route_key"]]

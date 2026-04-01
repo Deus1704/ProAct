@@ -1119,7 +1119,7 @@ button {
 .browser-viewer {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  bottom: 110px;
   z-index: 30;
   width: min(560px, calc(100vw - 40px));
   border-radius: 18px;
@@ -1204,9 +1204,9 @@ button {
 
 .toast {
   position: fixed;
-  top: 26px;
+  top: max(16px, env(safe-area-inset-top, 0px) + 10px);
   left: 50%;
-  z-index: 20;
+  z-index: 120;
   transform: translateX(-50%);
   min-width: 280px;
   max-width: calc(100vw - 40px);
@@ -1386,6 +1386,98 @@ button {
   font-size: 0.95rem;
 }
 
+.feedback-modal__card {
+  width: min(640px, calc(100vw - 28px));
+  max-height: min(78vh, 760px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.feedback-modal__body {
+  display: grid;
+  gap: 16px;
+}
+
+.feedback-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.feedback-chip {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.feedback-chip:hover,
+.feedback-chip:focus-visible {
+  border-color: rgba(124, 224, 245, 0.5);
+  background: rgba(124, 224, 245, 0.12);
+  color: #d7f7ff;
+  outline: none;
+}
+
+.feedback-chip.is-selected {
+  border-color: rgba(124, 224, 245, 0.72);
+  background: linear-gradient(90deg, rgba(124, 224, 245, 0.22), rgba(95, 215, 241, 0.16));
+  color: #f4fdff;
+  box-shadow: 0 12px 28px rgba(30, 216, 255, 0.14);
+}
+
+.feedback-modal__label {
+  color: var(--muted-strong);
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.feedback-modal__textarea {
+  width: 100%;
+  min-height: 124px;
+  resize: vertical;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 18, 0.78);
+  color: var(--text);
+  font: inherit;
+}
+
+.feedback-modal__textarea::placeholder {
+  color: rgba(220, 225, 232, 0.42);
+}
+
+.feedback-modal__textarea:focus {
+  outline: none;
+  border-color: rgba(124, 224, 245, 0.48);
+  box-shadow: 0 0 0 3px rgba(124, 224, 245, 0.1);
+}
+
+.feedback-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.feedback-modal__button {
+  min-width: 168px;
+  min-height: 52px;
+  border-radius: 14px;
+  padding: 0 22px;
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
 @media (max-width: 1280px) {
   .hero-copy,
   .assistant-grid,
@@ -1492,7 +1584,7 @@ button {
     left: 12px;
     right: 12px;
     width: auto;
-    bottom: 12px;
+    bottom: 88px;
   }
 
   .history-modal {

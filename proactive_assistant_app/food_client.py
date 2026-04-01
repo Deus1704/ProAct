@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from typing import Any
 
@@ -791,6 +792,344 @@ async def _extract_orders_from_dom_fallback(page) -> list[dict]:
     )
 
 
+async def scrape_top_restaurants(lat: float | None = None, lng: float | None = None) -> dict:
+    """Scrape top restaurants from Swiggy's homepage restaurant listing.
+
+    Uses the existing Playwright browser session to call Swiggy's internal API
+    from within the logged-in page context (same-origin fetch with cookies).
+    Does NOT require the user to have any order history.
+
+    Returns a dict with 'restaurants' list and metadata.
+    """
+    provider = "swiggy"
+
+    # --- Ensure a Swiggy browser context is alive ---
+    try:
+        context = await _ensure_context(provider)
+    except Exception as exc:
+        log.error("Failed to create Swiggy browser context: %s", exc)
+        return {"restaurants": [], "error": f"Browser init failed: {exc}"}
+
+    # Reuse / create persistent page for Swiggy
+    page = _pages.get(provider)
+    if not page or page.is_closed():
+        page = await context.new_page()
+        _pages[provider] = page
+        log.info("Created new persistent page for Swiggy restaurant scraping")
+
+    # Navigate to Swiggy if not already there
+    try:
+        current_url = page.url or ""
+        if "swiggy.com" not in current_url:
+            await page.goto("https://www.swiggy.com/", wait_until="domcontentloaded", timeout=45000)
+            await page.wait_for_timeout(3000)
+    except Exception as exc:
+        log.warning("Navigation to Swiggy failed: %s", exc)
+
+    # Default coordinates: Bangalore (Swiggy HQ area) — fallback if none provided
+    _lat = lat or 12.9352
+    _lng = lng or 77.6245
+
+    # --- Try Swiggy's internal restaurant listing API ---
+    restaurants: list[dict] = []
+
+    result = await page.evaluate("""async (params) => {
+        try {
+            const url = `/dapi/restaurants/list/v5?lat=${params.lat}&lng=${params.lng}&is-seo-homepage-enabled=true&page_type=DESKTOP_WEB_LISTING`;
+            const resp = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                credentials: 'include',
+            });
+            if (!resp.ok) {
+                return { error: `HTTP ${resp.status}` };
+            }
+            return await resp.json();
+        } catch (e) {
+            return { error: e.message };
+        }
+    }""", {"lat": _lat, "lng": _lng})
+
+    if result and not result.get("error"):
+        restaurants = _parse_restaurant_listing(result)
+        log.info("Swiggy restaurant API returned %d restaurants", len(restaurants))
+    else:
+        log.warning("Swiggy restaurant API failed: %s — trying DOM fallback", result)
+        restaurants = await _scrape_restaurants_from_dom(page)
+
+    if not restaurants:
+        log.warning("No restaurants found from Swiggy, returning empty list")
+
+    return {
+        "restaurants": restaurants[:20],
+        "count": len(restaurants[:20]),
+        "source": "swiggy",
+        "coordinates": {"lat": _lat, "lng": _lng},
+    }
+
+
+async def get_live_match_for_suggestion(
+    restaurant_name: str,
+    item_name: str | None = None,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> dict | None:
+    if not restaurant_name:
+        return None
+
+    result = await scrape_top_restaurants(lat=lat, lng=lng)
+    restaurants = result.get("restaurants") or []
+    if not restaurants:
+        return None
+
+    target_restaurant = _normalize_match_text(restaurant_name)
+    target_item = _normalize_match_text(item_name)
+
+    best_match: dict | None = None
+    best_score = 0.0
+
+    for restaurant in restaurants:
+        if not isinstance(restaurant, dict):
+            continue
+
+        restaurant_score = _text_similarity(
+            target_restaurant,
+            _normalize_match_text(restaurant.get("name")),
+        )
+        item_match = _match_menu_item(target_item, restaurant.get("menu_items"))
+        item_score = item_match.get("score", 0.0) if item_match else 0.0
+        total_score = (restaurant_score * 0.78) + (item_score * 0.22)
+
+        if total_score > best_score:
+            best_score = total_score
+            best_match = {
+                "restaurant_name": restaurant.get("name") or restaurant_name,
+                "item_name": item_match.get("name") if item_match else item_name,
+                "item_price": item_match.get("price") if item_match else None,
+                "delivery_time_mins": _safe_int(restaurant.get("delivery_time_mins")),
+                "cost_for_two": restaurant.get("cost_for_two"),
+                "deeplink": restaurant.get("deeplink"),
+                "offer": restaurant.get("offer"),
+                "image_url": restaurant.get("image_url"),
+                "is_open": restaurant.get("is_open"),
+                "match_score": round(total_score, 3),
+            }
+
+    if best_match and best_score >= 0.62:
+        return best_match
+    return None
+
+
+def _parse_restaurant_listing(data: dict) -> list[dict]:
+    """Parse Swiggy's restaurant listing API response into structured restaurant dicts."""
+    restaurants: list[dict] = []
+    seen_ids: set[str] = set()
+
+    # Swiggy's response has nested cards structure
+    # data -> data -> cards -> [card] -> card -> card -> info
+    cards = []
+
+    # Try different known response structures
+    if isinstance(data, dict):
+        top_data = data.get("data", data)
+        if isinstance(top_data, dict):
+            # Structure: data.cards[].card.card.gridElements.infoWithStyle.restaurants[].info
+            # or data.cards[].card.card.info (direct restaurant cards)
+            raw_cards = top_data.get("cards", [])
+            if not raw_cards:
+                raw_cards = top_data.get("data", {}).get("cards", [])
+
+            for card_wrapper in raw_cards:
+                if not isinstance(card_wrapper, dict):
+                    continue
+
+                card = card_wrapper.get("card", {}).get("card", card_wrapper)
+                if not isinstance(card, dict):
+                    continue
+
+                # Check for restaurant grid (most common)
+                grid_elements = card.get("gridElements", {})
+                if isinstance(grid_elements, dict):
+                    info_style = grid_elements.get("infoWithStyle", {})
+                    if isinstance(info_style, dict):
+                        res_list = info_style.get("restaurants", [])
+                        for r in res_list:
+                            if isinstance(r, dict):
+                                info = r.get("info", r)
+                                if isinstance(info, dict) and info.get("name"):
+                                    cards.append({"info": info, "cta": r.get("cta", {})})
+
+                # Direct restaurant info in card
+                if card.get("name") and card.get("id"):
+                    cards.append({"info": card, "cta": card.get("cta", {})})
+
+    for item in cards:
+        info = item.get("info", {})
+        cta = item.get("cta", {})
+
+        rest_id = str(info.get("id", ""))
+        if not rest_id or rest_id in seen_ids:
+            continue
+        seen_ids.add(rest_id)
+
+        name = (info.get("name") or "").strip()
+        if not name:
+            continue
+
+        # Extract cuisines
+        cuisines_raw = info.get("cuisines", [])
+        if isinstance(cuisines_raw, list):
+            cuisines = ", ".join(str(c) for c in cuisines_raw[:5])
+        else:
+            cuisines = str(cuisines_raw)
+
+        # Rating
+        avg_rating = info.get("avgRating") or info.get("avgRatingString")
+        total_ratings = info.get("totalRatingsString") or info.get("totalRatings", "")
+
+        # Delivery time
+        sla = info.get("sla", {})
+        delivery_time = sla.get("deliveryTime") or sla.get("slaString", "")
+
+        # Price
+        cost_for_two = info.get("costForTwo", "")
+
+        # Image
+        cloud_img_id = info.get("cloudinaryImageId", "")
+        image_url = ""
+        if cloud_img_id:
+            image_url = f"https://media-assets.swiggy.com/swiggy/image/upload/fl_lossy,f_auto,q_auto,w_660/{cloud_img_id}"
+
+        # Swiggy deeplink
+        slug = info.get("slugs", {})
+        city_slug = slug.get("city", "")
+        rest_slug = slug.get("restaurant", "")
+        deeplink = ""
+        if city_slug and rest_slug:
+            deeplink = f"https://www.swiggy.com/{city_slug}/{rest_slug}"
+        elif cta and cta.get("link"):
+            deeplink = cta.get("link", "")
+            if deeplink and not deeplink.startswith("http"):
+                deeplink = f"https://www.swiggy.com{deeplink}"
+
+        # Offers
+        aggregated_discount = info.get("aggregatedDiscountInfoV3", {})
+        offer_header = aggregated_discount.get("header", "") if isinstance(aggregated_discount, dict) else ""
+        offer_sub = aggregated_discount.get("subHeader", "") if isinstance(aggregated_discount, dict) else ""
+        offer_text = f"{offer_header} {offer_sub}".strip() if offer_header else ""
+
+        # Veg/NonVeg
+        veg = info.get("veg", False)
+
+        # Is open / available
+        is_open = info.get("isOpen", True)
+        availability = info.get("availability", {})
+
+        # Top dishes from menu items if available
+        menu_items = []
+        if info.get("menu"):
+            for mi in info.get("menu", [])[:5]:
+                if isinstance(mi, dict):
+                    menu_items.append({
+                        "name": mi.get("name", ""),
+                        "price": mi.get("price", 0),
+                    })
+
+        restaurants.append({
+            "id": rest_id,
+            "name": name,
+            "cuisines": cuisines,
+            "avg_rating": str(avg_rating) if avg_rating else None,
+            "total_ratings": str(total_ratings) if total_ratings else None,
+            "delivery_time_mins": delivery_time,
+            "cost_for_two": str(cost_for_two),
+            "image_url": image_url,
+            "deeplink": deeplink,
+            "offer": offer_text,
+            "is_veg": veg,
+            "is_open": is_open,
+            "area_name": info.get("areaName", ""),
+            "menu_items": menu_items,
+        })
+
+    return restaurants
+
+
+async def _scrape_restaurants_from_dom(page) -> list[dict]:
+    """Fallback DOM scraping to get restaurant cards from Swiggy's homepage."""
+    # Ensure we're on Swiggy's main page
+    try:
+        current_url = page.url or ""
+        if "swiggy.com" not in current_url:
+            await page.goto("https://www.swiggy.com/", wait_until="domcontentloaded", timeout=45000)
+            await page.wait_for_timeout(3000)
+
+        # Scroll down to load more restaurants
+        for _ in range(4):
+            await page.mouse.wheel(0, 1500)
+            await page.wait_for_timeout(800)
+    except Exception as exc:
+        log.warning("DOM scraping navigation failed: %s", exc)
+        return []
+
+    return await page.evaluate("""() => {
+        const results = [];
+        const seen = new Set();
+
+        // Swiggy restaurant cards typically have data-testid or specific class patterns
+        // Try to find restaurant card links
+        const links = document.querySelectorAll('a[href*="/restaurants/"]');
+        
+        for (const link of links) {
+            const href = link.getAttribute('href') || '';
+            if (seen.has(href) || !href.includes('/restaurants/')) continue;
+            seen.add(href);
+
+            const card = link.closest('div') || link;
+            const text = (card.innerText || '').trim();
+            if (!text || text.length < 10) continue;
+
+            const lines = text.split('\\n').map(l => l.trim()).filter(Boolean);
+
+            // Try to extract structured data from card text
+            const name = lines[0] || '';
+            const ratingMatch = text.match(/(\\d+\\.\\d)\\s*/);
+            const timeMatch = text.match(/(\\d+)\\s*mins?/i);
+            const priceMatch = text.match(/₹(\\d+)/);
+
+            // Get image
+            const img = card.querySelector('img');
+            const imageUrl = img ? (img.getAttribute('src') || '') : '';
+
+            if (name && name.length > 2 && name.length < 80) {
+                results.push({
+                    id: href.split('/').pop() || name.replace(/\\s+/g, '-').toLowerCase(),
+                    name: name,
+                    cuisines: lines.length > 1 ? lines[1] : '',
+                    avg_rating: ratingMatch ? ratingMatch[1] : null,
+                    total_ratings: null,
+                    delivery_time_mins: timeMatch ? parseInt(timeMatch[1]) : null,
+                    cost_for_two: priceMatch ? '₹' + priceMatch[1] + ' for two' : '',
+                    image_url: imageUrl,
+                    deeplink: href.startsWith('http') ? href : 'https://www.swiggy.com' + href,
+                    offer: '',
+                    is_veg: false,
+                    is_open: true,
+                    area_name: '',
+                    menu_items: [],
+                });
+            }
+
+            if (results.length >= 20) break;
+        }
+
+        return results;
+    }""")
+
+
 def _normalize_order(provider: str, payload: dict) -> dict | None:
     if not isinstance(payload, dict):
         return None
@@ -823,6 +1162,58 @@ def _normalize_order(provider: str, payload: dict) -> dict | None:
         "delivery_address": _clean_text(payload.get("delivery_address")),
         "raw_payload": payload.get("raw_payload") or payload,
     }
+
+
+def _normalize_match_text(value) -> str:
+    text = _clean_text(value) or ""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _text_similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    if left in right or right in left:
+        return 0.94
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def _match_menu_item(target_item: str, menu_items) -> dict | None:
+    if not target_item or not isinstance(menu_items, list):
+        return None
+
+    best: dict | None = None
+    best_score = 0.0
+    for item in menu_items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        score = _text_similarity(target_item, _normalize_match_text(name))
+        if score > best_score:
+            best_score = score
+            best = {
+                "name": name,
+                "price": _to_float(item.get("price")),
+                "score": score,
+            }
+
+    if best and best_score >= 0.58:
+        return best
+    return None
+
+
+def _safe_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return int(round(value))
+    match = re.search(r"(\d+)", str(value))
+    if not match:
+        return None
+    return int(match.group(1))
 
 
 def _clean_text(value) -> str | None:

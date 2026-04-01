@@ -21,7 +21,7 @@ load_dotenv()
 log = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-MODEL = "llama-3.3-70b-versatile"
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -29,17 +29,26 @@ def _route_key(pickup: str, dropoff: str) -> str:
     return f"{(pickup or '').strip().lower()}|{(dropoff or '').strip().lower()}"
 
 
-def get_suggestion(current_time: datetime = None, user_lat: float = None, user_lng: float = None) -> dict | None:
-    """Main entry point: use Groq to analyze ride patterns and decide if a suggestion is needed."""
+def get_suggestion(
+    current_time: datetime = None,
+    user_lat: float = None,
+    user_lng: float = None,
+    user_identifier: str | None = None,
+) -> dict | None:
+    """Main entry point: use OpenAI to analyze ride patterns and decide if a suggestion is needed."""
     now = current_time or datetime.now(IST)
 
     # Gather data for the LLM
     rides = db.get_ride_history(limit=50)
     routes = db.get_route_frequencies()
     if not routes:
-        return _most_frequent_route_fallback(now, rides, user_lat, user_lng)
+        return _most_frequent_route_fallback(now, rides, user_lat, user_lng, user_identifier)
 
     recent_interactions = db.get_recent_interactions(hours=24)
+    user_feedback = db.get_recent_ride_feedback_memories(user_identifier, limit=8) if user_identifier else []
+    dismissed_route_keys = set(
+        db.get_recent_dismissed_route_keys_for_user(user_identifier, hours=168)
+    ) if user_identifier else set()
 
     # Annoyance avoidance (hard rules — don't send to LLM)
     recent_confirms = db.get_recent_interactions("confirm", hours=4)
@@ -48,7 +57,16 @@ def get_suggestion(current_time: datetime = None, user_lat: float = None, user_l
         return None  # Cooldown
 
     # Build context for the LLM
-    analysis = _ask_groq_for_suggestion(now, routes, rides, recent_interactions, recent_confirms, user_lat, user_lng)
+    analysis = _ask_groq_for_suggestion(
+        now,
+        routes,
+        rides,
+        recent_interactions,
+        recent_confirms,
+        user_feedback,
+        user_lat,
+        user_lng,
+    )
 
     if not analysis or not analysis.get("should_suggest"):
         return None
@@ -57,6 +75,9 @@ def get_suggestion(current_time: datetime = None, user_lat: float = None, user_l
     pickup = analysis.get("pickup", "Unknown")
     dropoff = analysis.get("dropoff", "Unknown")
     rk = _route_key(pickup, dropoff)
+
+    if rk in dismissed_route_keys:
+        return None
 
     # Check if this route was recently confirmed
     for c in recent_confirms:
@@ -122,10 +143,11 @@ def _ask_groq_for_suggestion(
     rides: list[dict],
     interactions: list[dict],
     recent_confirms: list[dict],
+    user_feedback: list[dict],
     user_lat: float = None,
     user_lng: float = None,
 ) -> dict | None:
-    """Send ride data to Groq and get back a suggestion decision."""
+    """Send ride data to OpenAI and get back a suggestion decision."""
 
     if not GROQ_API_KEY:
         log.warning("No GROQ_API_KEY set, falling back to rule-based engine")
@@ -191,6 +213,18 @@ def _ask_groq_for_suggestion(
             "time": i.get("timestamp"),
         })
 
+    user_feedback_summary = []
+    for item in user_feedback[:8]:
+        user_feedback_summary.append({
+            "route": item.get("route_key"),
+            "pickup": item.get("pickup_address"),
+            "dropoff": item.get("dropoff_address"),
+            "reason_code": item.get("reason_code"),
+            "feedback_text": item.get("feedback_text"),
+            "dismiss_count": item.get("dismiss_count"),
+            "updated_at": item.get("updated_at"),
+        })
+
     location_ctx = ""
     if user_lat and user_lng:
         location_ctx = f"\nUSER'S CURRENT GPS LOCATION: {user_lat}, {user_lng}"
@@ -209,11 +243,15 @@ RECENT RIDES (last 10):
 RECENT USER INTERACTIONS (confirms, dismissals, edits):
 {json.dumps(interaction_summary, indent=2, default=str)}
 
+PER-USER DISMISSAL MEMORY:
+{json.dumps(user_feedback_summary, indent=2, default=str)}
+
 RULES:
 - ONLY suggest a ride if the current time is CLOSE to the user's typical ride time (within ~1-2 hours). Do NOT suggest rides at odd hours (e.g., 3 AM when the user rides at 6 AM).
 - If no pattern matches the current day+time, return should_suggest: false.
 - Confidence should reflect how well the current day/time matches the pattern. A perfect day+time match = high confidence. Off by hours = low/zero confidence.
 - If the user has GPS coordinates, use "Current Location" as pickup.
+- Avoid routes the user recently dismissed, especially when the feedback says the destination or timing is wrong.
 - All times are in IST.
 
 Based on this data, decide:
@@ -274,6 +312,7 @@ def _most_frequent_route_fallback(
     rides: list[dict],
     user_lat: float = None,
     user_lng: float = None,
+    user_identifier: str | None = None,
 ) -> dict | None:
     """Suggest the most-frequently-taken route when no aggregated patterns exist yet.
 
@@ -310,6 +349,8 @@ def _most_frequent_route_fallback(
             break
 
     rk = _route_key(pickup, top_dropoff)
+    if user_identifier and rk in set(db.get_recent_dismissed_route_keys_for_user(user_identifier, hours=168)):
+        return None
 
     suggestion = {
         "pickup": pickup,

@@ -59,6 +59,7 @@ async def _ensure_browser() -> BrowserContext:
         user_agent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
         is_mobile=True,
         has_touch=True,
+        timezone_id="Asia/Kolkata",
     )
 
     # Restore cookies if saved
@@ -620,6 +621,18 @@ def _parse_activity_trip(trip: dict) -> dict | None:
         if not uuid:
             return None
 
+        # Filter out Uber Eats orders that share the same backend graph
+        if "ubereats" in card_url.lower() or "eats.uber" in card_url.lower():
+            return None
+        
+        # Also check buttons for "ubereats" link
+        buttons = trip.get("buttons", [])
+        for btn in buttons:
+            if "ubereats" in (btn.get("url") or "").lower():
+                return None
+            if btn.get("text", "").lower() == "reorder":
+                return None
+
         # Parse price from description
         price = None
         canceled = "cancel" in description.lower()
@@ -776,6 +789,10 @@ def _parse_trips_from_text(text: str) -> list[dict]:
                         "canceled": canceled,
                     },
                 })
+                
+                # Check if it was actually an eats order (sometimes they include "Order" instead of "Ride")
+                if "eats" in destination.lower() or "delivery" in destination.lower():
+                    rides.pop()
 
                 log.info("Parsed trip: %s on %s %s - ₹%s%s",
                          destination, date_str, time_str, price, " (canceled)" if canceled else "")
@@ -1073,11 +1090,18 @@ async def scrape_live_estimates(
         if captured_responses:
             result["live"] = True
             result["network_data"] = captured_responses
+            result["estimates"] = _extract_live_estimate_candidates(captured_responses)
+            if result["estimates"]:
+                result["best_estimate"] = _select_best_live_estimate(result["estimates"])
 
         if estimates:
             result["dom_data"] = estimates
             if not result["live"]:
                 result["live"] = True
+            if not result.get("estimates"):
+                result["estimates"] = _extract_dom_estimate_candidates(estimates)
+                if result["estimates"]:
+                    result["best_estimate"] = _select_best_live_estimate(result["estimates"])
 
         await page.close()
         return result
@@ -1090,6 +1114,210 @@ async def scrape_live_estimates(
         except Exception:
             pass
         return result
+
+
+def _extract_live_estimate_candidates(captured_responses: list[dict]) -> list[dict]:
+    candidates: list[dict] = []
+    seen: set[tuple] = set()
+
+    for item in captured_responses:
+        payload = item.get("data")
+        if payload is None:
+            continue
+        for candidate in _walk_estimate_nodes(payload):
+            key = (
+                candidate.get("ride_type") or "",
+                candidate.get("price_text") or "",
+                candidate.get("eta_minutes"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(candidate)
+
+    return candidates
+
+
+def _walk_estimate_nodes(node) -> list[dict]:
+    matches: list[dict] = []
+
+    if isinstance(node, dict):
+        candidate = _candidate_from_dict(node)
+        if candidate:
+            matches.append(candidate)
+
+        for value in node.values():
+            matches.extend(_walk_estimate_nodes(value))
+        return matches
+
+    if isinstance(node, list):
+        for value in node:
+            matches.extend(_walk_estimate_nodes(value))
+
+    return matches
+
+
+def _candidate_from_dict(node: dict) -> dict | None:
+    name = _first_string(
+        node,
+        [
+            "display_name",
+            "displayName",
+            "product_display_name",
+            "productName",
+            "product_name",
+            "vehicleViewDisplayName",
+            "name",
+            "title",
+        ],
+    )
+    price_text = _first_price_text(
+        node,
+        [
+            "estimate",
+            "priceString",
+            "fareString",
+            "fare_display",
+            "formatted_total_fare",
+            "formattedTotalFare",
+            "upfront_fare",
+            "price",
+        ],
+    )
+
+    low_estimate = _first_number(
+        node,
+        ["lowEstimate", "low_estimate", "fareLower", "minimum_fare", "min_price"],
+    )
+    high_estimate = _first_number(
+        node,
+        ["highEstimate", "high_estimate", "fareUpper", "maximum_fare", "max_price"],
+    )
+    eta_minutes = _extract_eta_minutes(node)
+
+    if not any([price_text, low_estimate, high_estimate, eta_minutes]):
+        return None
+
+    if not name:
+        name = "Uber"
+
+    if not price_text and low_estimate is not None and high_estimate is not None:
+        price_text = f"₹{int(round(low_estimate))}-₹{int(round(high_estimate))}"
+    elif not price_text and high_estimate is not None:
+        price_text = f"₹{int(round(high_estimate))}"
+
+    return {
+        "ride_type": name,
+        "price_text": price_text,
+        "low_estimate": low_estimate,
+        "high_estimate": high_estimate,
+        "eta_minutes": eta_minutes,
+    }
+
+
+def _extract_dom_estimate_candidates(dom_estimates: list[dict]) -> list[dict]:
+    candidates: list[dict] = []
+    for entry in dom_estimates:
+        if not isinstance(entry, dict):
+            continue
+        prices = entry.get("prices")
+        if not isinstance(prices, list):
+            continue
+        for price in prices:
+            if not isinstance(price, str):
+                continue
+            candidates.append(
+                {
+                    "ride_type": "Uber",
+                    "price_text": price.strip(),
+                    "low_estimate": None,
+                    "high_estimate": _price_to_number(price),
+                    "eta_minutes": None,
+                }
+            )
+    return candidates
+
+
+def _select_best_live_estimate(estimates: list[dict]) -> dict | None:
+    usable = [estimate for estimate in estimates if isinstance(estimate, dict)]
+    if not usable:
+        return None
+
+    def score(item: dict) -> tuple[int, float, float]:
+        has_name = 0 if (item.get("ride_type") or "").lower() in {"uber", ""} else 1
+        eta = item.get("eta_minutes")
+        high = item.get("high_estimate")
+        eta_score = float(eta) if isinstance(eta, (int, float)) else 9999.0
+        high_score = float(high) if isinstance(high, (int, float)) else 9999.0
+        return (-has_name, eta_score, high_score)
+
+    return sorted(usable, key=score)[0]
+
+
+def _first_string(node: dict, keys: list[str]) -> str | None:
+    for key in keys:
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _first_price_text(node: dict, keys: list[str]) -> str | None:
+    for key in keys:
+        value = node.get(key)
+        if isinstance(value, str):
+            match = re.search(r"[₹$€£]\s*[\d,]+(?:\.\d+)?(?:\s*[-–]\s*[₹$€£]?\s*[\d,]+(?:\.\d+)?)?", value)
+            if match:
+                return match.group(0).replace(" ", "")
+        if isinstance(value, (int, float)):
+            return f"₹{int(round(float(value)))}"
+    return None
+
+
+def _first_number(node: dict, keys: list[str]) -> float | None:
+    for key in keys:
+        value = node.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            parsed = _price_to_number(value)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _extract_eta_minutes(node: dict) -> int | None:
+    keys = [
+        "pickup_estimate",
+        "pickupEstimate",
+        "pickup_estimate_minutes",
+        "eta_minutes",
+        "eta",
+        "waitTime",
+        "wait_time",
+    ]
+    for key in keys:
+        value = node.get(key)
+        if isinstance(value, (int, float)):
+            numeric = float(value)
+            if "eta" == key and numeric > 120:
+                return int(round(numeric / 60.0))
+            return int(round(numeric))
+        if isinstance(value, str):
+            match = re.search(r"(\d+)", value)
+            if match:
+                return int(match.group(1))
+    return None
+
+
+def _price_to_number(value: str) -> float | None:
+    text = re.sub(r"[^0-9.]", "", str(value))
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 # ── Deep Link Builder ────────────────────────────────────────────────────────

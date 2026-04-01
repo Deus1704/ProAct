@@ -2,6 +2,8 @@ const HEADERS = {"ngrok-skip-browser-warning": "true"};
 
 const API = {
   authStatus: () => get("/api/auth/status"),
+  uiGreeting: () => get("/api/ui/greeting"),
+  liveContext: (lat, lng) => get(`/api/context/live?lat=${lat}&lng=${lng}`),
   logout: () => post("/api/auth/logout"),
   suggestion: (lat, lng) => get(`/api/ride/suggestion${lat != null ? `?lat=${lat}&lng=${lng}` : ""}`),
   patterns: () => get("/api/ride/patterns"),
@@ -20,14 +22,17 @@ const API = {
     const sourceParam = source ? `&source=${encodeURIComponent(source)}` : "";
     return get(`/api/food/history?limit=${limit}&offset=${offset}${sourceParam}`);
   },
-  foodSuggestion: () => get("/api/food/suggestion"),
+  foodSuggestion: (lat, lng) => get(`/api/food/suggestion${lat != null ? `?lat=${lat}&lng=${lng}` : ""}`),
   foodPatterns: () => get("/api/food/patterns"),
+  foodTopRestaurants: (lat, lng) => get(`/api/food/top-restaurants${lat != null ? `?lat=${lat}&lng=${lng}` : ""}`),
   foodLogin: (provider) => post(`/api/food/login/${encodeURIComponent(provider)}`),
   foodScreenshot: () => get("/api/food/screenshot"),
   foodClick: (x, y) => post("/api/food/click", {x, y}),
   foodType: (text) => post("/api/food/type", {text}),
   foodKey: (key) => post("/api/food/key", {key}),
   foodFinishLogin: (provider) => post(`/api/food/finish-login/${encodeURIComponent(provider)}`),
+  rideConfirm: (payload) => post("/api/ride/confirm", payload),
+  rideDismiss: (payload) => post("/api/ride/dismiss", payload),
   foodConfirm: (payload) => post("/api/food/confirm", payload),
   syncFoodHistory: (provider = null) => {
     const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
@@ -49,9 +54,14 @@ const state = {
   foodHistoryTotal: 0,
   foodSuggestion: null,
   foodPatterns: [],
+  topRestaurants: [],
+  topRestaurantsLoading: false,
+  topRestaurantsError: null,
   userLat: null,
   userLng: null,
   userProfile: null,
+  uiGreeting: null,
+  liveContext: null,
   appStarted: false,
 };
 
@@ -60,6 +70,19 @@ const browserState = {
   mode: null,
   provider: null,
   pollTimer: null,
+};
+
+const rideMapState = {
+  map: null,
+  pickupMarker: null,
+  dropoffMarker: null,
+  routingControl: null,
+  initialized: false,
+  lastBounds: null,
+};
+
+const rideDismissState = {
+  reasonCode: "",
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -79,11 +102,57 @@ async function startMainApp() {
 
   bindRouting();
   bindActions();
-  requestLocation();
   renderRoute(getCurrentRoute());
 
-  await Promise.all([loadRideData(), loadUberStatus(), loadFoodData(), loadFoodStatus()]);
+  // Load non-location-dependent data immediately (status, history, patterns, greeting)
+  // This allows cards to show content quickly without waiting for GPS
+  const nonLocationDataPromise = Promise.all([
+    loadUberStatus(),
+    loadFoodStatus(),
+    loadUiGreeting(),
+    API.patterns().then(data => { state.patterns = data?.top_patterns || []; }),
+    API.history(8, 0).then(data => {
+      state.history = data?.rides || [];
+      state.historyTotal = data?.total || state.history.length;
+    }),
+    API.upcoming().then(data => { state.upcoming = data?.upcoming || []; }),
+    API.foodPatterns().then(data => { state.foodPatterns = data?.top_patterns || []; }),
+    API.foodHistory(10, 0).then(data => {
+      state.foodHistory = data?.orders || [];
+      state.foodHistoryTotal = data?.total || state.foodHistory.length;
+    }),
+  ]);
+
+  // Render dashboard with non-location data first (cards show status & history)
+  await nonLocationDataPromise;
   renderDashboard();
+
+  // Then request GPS location and load GPS-dependent data in parallel
+  requestLocationAndLoadGPSData();
+
+  // Check for sync notification stored prior to reload
+  const syncNotification = sessionStorage.getItem("syncNotification");
+  if (syncNotification) {
+    setTimeout(() => {
+      showToast(syncNotification);
+    }, 500); // Small delay to ensure UI is ready
+    sessionStorage.removeItem("syncNotification");
+  }
+
+  const autoSyncProvider = sessionStorage.getItem("autoSyncProvider");
+  if (autoSyncProvider) {
+    if (autoSyncProvider === "uber") {
+      API.syncUberHistory().then(() => {
+        loadRideData().then(() => renderDashboard());
+      }).catch(console.error);
+    } else if (autoSyncProvider.startsWith("food_")) {
+      const provider = autoSyncProvider.replace("food_", "");
+      API.syncFoodHistory(provider).then(() => {
+        loadFoodData().then(() => renderDashboard());
+      }).catch(console.error);
+    }
+    sessionStorage.removeItem("autoSyncProvider");
+  }
 }
 
 async function loadAuthProfile() {
@@ -110,6 +179,11 @@ function applyProfileToGreeting() {
   const heading = document.getElementById("homeGreetingHeading");
   if (!heading) return;
 
+  if (state.uiGreeting?.heading) {
+    heading.textContent = state.uiGreeting.heading;
+    return;
+  }
+
   const timeBased = getTimeGreeting();
   const name = state.userProfile?.firstName ? `, ${state.userProfile.firstName}` : "";
   heading.textContent = `${timeBased}${name}`;
@@ -118,9 +192,11 @@ function applyProfileToGreeting() {
 function updateBodyScrollLock() {
   const historyModal = document.getElementById("rideHistoryModal");
   const foodHistoryModal = document.getElementById("foodHistoryModal");
+  const rideDismissModal = document.getElementById("rideDismissModal");
   const historyOpen = Boolean(historyModal && !historyModal.classList.contains("hidden"));
   const foodHistoryOpen = Boolean(foodHistoryModal && !foodHistoryModal.classList.contains("hidden"));
-  document.body.classList.toggle("no-scroll", historyOpen || foodHistoryOpen);
+  const rideDismissOpen = Boolean(rideDismissModal && !rideDismissModal.classList.contains("hidden"));
+  document.body.classList.toggle("no-scroll", historyOpen || foodHistoryOpen || rideDismissOpen);
 }
 
 async function openRideHistoryModal() {
@@ -150,6 +226,105 @@ function closeRideHistoryModal() {
   if (!modal || modal.classList.contains("hidden")) return;
   modal.classList.add("hidden");
   updateBodyScrollLock();
+}
+
+function openRideDismissModal() {
+  const modal = document.getElementById("rideDismissModal");
+  const input = document.getElementById("rideDismissFeedbackInput");
+  const meta = document.getElementById("rideDismissModalMeta");
+  if (!modal) return;
+
+  rideDismissState.reasonCode = "";
+  document.querySelectorAll("#rideDismissReasonList .feedback-chip").forEach((chip) => {
+    chip.classList.remove("is-selected");
+  });
+  if (input) input.value = "";
+
+  if (meta) {
+    meta.textContent = `We will remember why ${state.suggestion?.dropoff || "this destination"} was not the right ride for you.`;
+  }
+
+  modal.classList.remove("hidden");
+  updateBodyScrollLock();
+}
+
+function closeRideDismissModal() {
+  const modal = document.getElementById("rideDismissModal");
+  if (!modal || modal.classList.contains("hidden")) return;
+  modal.classList.add("hidden");
+  updateBodyScrollLock();
+}
+
+function selectRideDismissReason(reasonCode) {
+  rideDismissState.reasonCode = reasonCode || "";
+  document.querySelectorAll("#rideDismissReasonList .feedback-chip").forEach((chip) => {
+    chip.classList.toggle("is-selected", chip.dataset.reasonCode === rideDismissState.reasonCode);
+  });
+}
+
+async function submitRideDismissFeedback() {
+  if (!state.suggestion?.route_key) {
+    closeRideDismissModal();
+    showToast("No active suggestion to dismiss.");
+    return;
+  }
+
+  const input = document.getElementById("rideDismissFeedbackInput");
+  const payload = {
+    route_key: state.suggestion.route_key,
+    reason: rideDismissState.reasonCode || "dismissed",
+    reason_code: rideDismissState.reasonCode || null,
+    feedback_text: input?.value?.trim() || null,
+    pickup: state.suggestion.pickup || null,
+    dropoff: state.suggestion.dropoff || null,
+    suggestion_payload: state.suggestion,
+  };
+
+  try {
+    await API.rideDismiss(payload);
+    closeRideDismissModal();
+    await loadRideData();
+    renderDashboard();
+    showToast("Suggestion dismissed. I will use that feedback for this user next time.");
+  } catch {
+    showToast("Could not save that feedback right now.");
+  }
+}
+
+async function handleHomeRideAction(action) {
+  if (!state.suggestion && action !== "explore") {
+    showToast("No ride suggestion is ready yet.");
+    return;
+  }
+
+  if (action === "confirm") {
+    try {
+      const response = await API.rideConfirm({
+        route_key: state.suggestion.route_key,
+        pickup: state.suggestion.pickup,
+        dropoff: state.suggestion.dropoff,
+        ride_type: state.suggestion.ride_type,
+      });
+      navigate("/rides");
+      showToast(`Ride confirmed for ${state.suggestion.dropoff || "your destination"}.`);
+      const deeplink = response?.deeplink || state.suggestion?.deeplink;
+      if (deeplink) {
+        window.open(deeplink, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      showToast("Could not confirm that ride right now.");
+    }
+    return;
+  }
+
+  if (action === "dismiss") {
+    openRideDismissModal();
+    return;
+  }
+
+  if (action === "explore") {
+    navigate("/rides");
+  }
 }
 
 async function fetchAllRideHistory() {
@@ -324,6 +499,19 @@ function getTimeGreeting() {
   return "Good evening";
 }
 
+function buildLocalUiGreeting() {
+  const now = new Date();
+  const weekday = now.toLocaleDateString(undefined, {weekday: "long"});
+  const timeOfDay = getTimeGreeting().replace("Good ", "");
+  const titleTime = capitalize(timeOfDay);
+  return {
+    heading: `${getTimeGreeting()}${state.userProfile?.firstName ? `, ${state.userProfile.firstName}` : ""}`,
+    home_label: `Proactive ${titleTime} Brief`,
+    home_summary: `Your proactive assistant has mapped the next best ride and dining moves for the ${timeOfDay}.`,
+    food_label: `${weekday} ${titleTime} Curation`,
+  };
+}
+
 function buildFirstName(name, email) {
   const fromName = String(name || "").trim();
   if (fromName) return capitalize(fromName.split(/\s+/)[0]);
@@ -370,10 +558,7 @@ function bindActions() {
     });
   }
 
-  const rideButtons = [
-    document.getElementById("bookRideNow"),
-    document.querySelector(".panel-cta--cyan"),
-  ];
+  const rideButtons = [document.getElementById("bookRideNow")];
   rideButtons.forEach((button) => {
     if (!button) return;
     button.addEventListener("click", (event) => {
@@ -471,10 +656,64 @@ function bindActions() {
     });
   }
 
+  const homeRideActions = document.getElementById("homeRideActions");
+  if (homeRideActions) {
+    homeRideActions.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-home-ride-action]");
+      if (!button) return;
+      event.preventDefault();
+      handleHomeRideAction(button.dataset.homeRideAction);
+    });
+  }
+
+  const rideDismissModal = document.getElementById("rideDismissModal");
+  if (rideDismissModal) {
+    rideDismissModal.addEventListener("click", (event) => {
+      if (event.target === rideDismissModal) {
+        closeRideDismissModal();
+      }
+    });
+  }
+
+  const closeRideDismissModalBtn = document.getElementById("closeRideDismissModal");
+  if (closeRideDismissModalBtn) {
+    closeRideDismissModalBtn.addEventListener("click", closeRideDismissModal);
+  }
+
+  const cancelRideDismissModalBtn = document.getElementById("cancelRideDismissModal");
+  if (cancelRideDismissModalBtn) {
+    cancelRideDismissModalBtn.addEventListener("click", closeRideDismissModal);
+  }
+
+  const submitRideDismissFeedbackBtn = document.getElementById("submitRideDismissFeedback");
+  if (submitRideDismissFeedbackBtn) {
+    submitRideDismissFeedbackBtn.addEventListener("click", submitRideDismissFeedback);
+  }
+
+  const rideDismissReasonList = document.getElementById("rideDismissReasonList");
+  if (rideDismissReasonList) {
+    rideDismissReasonList.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-reason-code]");
+      if (!chip) return;
+      selectRideDismissReason(chip.dataset.reasonCode || "");
+    });
+  }
+
+  const rideDismissFeedbackInput = document.getElementById("rideDismissFeedbackInput");
+  if (rideDismissFeedbackInput) {
+    rideDismissFeedbackInput.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        submitRideDismissFeedback();
+      }
+    });
+  }
+
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeRideHistoryModal();
       closeFoodHistoryModal();
+      closeRideDismissModal();
       hideBrowserViewer();
     }
   });
@@ -499,37 +738,109 @@ function bindActions() {
   }
 }
 
-function requestLocation() {
-  if (!navigator.geolocation) return;
+async function loadUiGreeting() {
+  try {
+    state.uiGreeting = await API.uiGreeting();
+  } catch {
+    state.uiGreeting = null;
+  }
+  applyUiGreetingCopy();
+}
+
+function applyUiGreetingCopy() {
+  const greeting = state.uiGreeting || buildLocalUiGreeting();
+  const homeBriefLabel = document.getElementById("homeBriefLabel");
+  const homeGreetingSummary = document.getElementById("homeGreetingSummary");
+  const foodCurationLabel = document.getElementById("foodCurationLabel");
+
+  applyProfileToGreeting();
+  if (homeBriefLabel) homeBriefLabel.textContent = greeting.home_label;
+  if (homeGreetingSummary) homeGreetingSummary.textContent = greeting.home_summary;
+  if (foodCurationLabel) foodCurationLabel.textContent = greeting.food_label;
+}
+
+function requestLocationAndLoadGPSData() {
+  if (!navigator.geolocation) {
+    // No geolocation support - load suggestions with null location (API may have cache/defaults)
+    loadRideDataWithLocation(null, null);
+    return;
+  }
+
+  // Request GPS with aggressive timeout to not block UX
+  // Use enableHighAccuracy: true for best results, but will fall back if timeout
   navigator.geolocation.getCurrentPosition(
     (position) => {
+      // Successfully got GPS - update location and reload GPS-dependent data
       state.userLat = position.coords.latitude;
       state.userLng = position.coords.longitude;
-      loadRideData().then(renderDashboard);
+      loadRideDataWithLocation(state.userLat, state.userLng);
     },
-    () => {},
-    {enableHighAccuracy: true, timeout: 8000, maximumAge: 60000}
+    (error) => {
+      // GPS failed or was denied - load with null location (API may have cache/defaults)
+      console.warn("Geolocation error:", error.code, error.message);
+      loadRideDataWithLocation(null, null);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 6000,      // Fast timeout - don't block UX waiting for high accuracy
+      maximumAge: 60000   // Use cached location if available
+    }
   );
+}
+
+async function loadRideDataWithLocation(lat, lng) {
+  // Load GPS-dependent data (suggestions, live context, restaurants)
+  // These will update the dashboard when ready
+  const gpsDataResults = await Promise.allSettled([
+    API.suggestion(lat, lng),
+    API.foodSuggestion(lat, lng),
+    API.liveContext(lat, lng),
+    API.foodTopRestaurants(lat, lng),
+  ]);
+
+  // Update state with GPS-dependent results
+  state.suggestion = readFulfilled(gpsDataResults[0])?.suggestion || null;
+  state.foodSuggestion = readFulfilled(gpsDataResults[1])?.suggestion || null;
+  state.liveContext = readFulfilled(gpsDataResults[2]) || null;
+  
+  const restaurantsData = readFulfilled(gpsDataResults[3]);
+  if (restaurantsData?.error) {
+    state.topRestaurantsError = restaurantsData.error;
+    state.topRestaurants = [];
+  } else {
+    state.topRestaurants = restaurantsData?.restaurants || [];
+  }
+  state.topRestaurantsLoading = false;
+
+  // Re-render dashboard with updated GPS data
+  // Only re-render specific sections that depend on location to minimize flicker
+  renderHomeSummary();
+  renderRidePage();
+  renderFoodPage();
+}
+
+async function loadLiveContext() {
+  if (state.userLat == null || state.userLng == null) return;
+  try {
+    const data = await API.liveContext(state.userLat, state.userLng);
+    state.liveContext = data || null;
+  } catch {
+    state.liveContext = null;
+  }
 }
 
 async function loadRideData() {
   const results = await Promise.allSettled([
     API.suggestion(state.userLat, state.userLng),
-    API.patterns(),
-    API.history(8, 0),
-    API.upcoming(),
   ]);
 
   state.suggestion = readFulfilled(results[0])?.suggestion || null;
-  state.patterns = readFulfilled(results[1])?.top_patterns || [];
-  state.history = readFulfilled(results[2])?.rides || [];
-  state.historyTotal = readFulfilled(results[2])?.total || state.history.length;
-  state.upcoming = readFulfilled(results[3])?.upcoming || [];
+  // patterns, history already loaded in startMainApp
 }
 
 async function loadFoodData() {
   const results = await Promise.allSettled([
-    API.foodSuggestion(),
+    API.foodSuggestion(state.userLat, state.userLng),
     API.foodPatterns(),
     API.foodHistory(10, 0),
   ]);
@@ -538,6 +849,31 @@ async function loadFoodData() {
   state.foodPatterns = readFulfilled(results[1])?.top_patterns || [];
   state.foodHistory = readFulfilled(results[2])?.orders || [];
   state.foodHistoryTotal = readFulfilled(results[2])?.total || state.foodHistory.length;
+
+  // Start loading top restaurants in the background (don't block main render)
+  loadTopRestaurants();
+}
+
+async function loadTopRestaurants() {
+  state.topRestaurantsLoading = true;
+  state.topRestaurantsError = null;
+  renderFoodPage(); // Show loading state
+
+  try {
+    const data = await API.foodTopRestaurants(state.userLat, state.userLng);
+    if (data?.error) {
+      state.topRestaurantsError = data.error;
+      state.topRestaurants = [];
+    } else {
+      state.topRestaurants = data?.restaurants || [];
+    }
+  } catch (err) {
+    state.topRestaurantsError = err.message || "Failed to load restaurants";
+    state.topRestaurants = [];
+  }
+
+  state.topRestaurantsLoading = false;
+  renderFoodPage(); // Re-render with data
 }
 
 async function loadUberStatus() {
@@ -564,13 +900,30 @@ function renderHomeSummary() {
   const chip = document.getElementById("homeRideChip");
   const logisticsTitle = document.getElementById("logisticsTitle");
   const logisticsText = document.getElementById("logisticsText");
+  const homeRidePickupValue = document.getElementById("homeRidePickupValue");
+  const homeRideDropoffValue = document.getElementById("homeRideDropoffValue");
+  const homeRideMetaLabel = document.getElementById("homeRideMetaLabel");
+  const homeRideMetaValue = document.getElementById("homeRideMetaValue");
   const activityList = document.getElementById("homeActivityList");
   const contextLocation = document.getElementById("contextLocation");
+  const contextHeadline = document.getElementById("contextHeadline");
+  const contextTemperature = document.getElementById("contextTemperature");
+  const contextAqi = document.getElementById("contextAqi");
+  const contextCoords = document.getElementById("contextCoords");
+  const contextPulse = document.getElementById("contextPulse");
 
   if (state.suggestion) {
-    chip.textContent = `${shortAddress(state.suggestion.dropoff || "Home").toUpperCase()} IN ${Math.round(state.suggestion.eta_minutes || 12)}M`;
-    logisticsTitle.textContent = `ETA ${shortAddress(state.suggestion.dropoff || "Home")}: ${formatClock(state.suggestion.suggested_departure)}`;
+    const activeRide = getActiveRideContext();
+    const pickupDisplay = activeRide.pickupName === "Current location" && state.liveContext?.location
+      ? state.liveContext.location
+      : activeRide.pickupName;
+    chip.textContent = `${shortAddress(activeRide.dropoffName || "Home").toUpperCase()} IN ${Math.round(state.suggestion.eta_minutes || 12)}M`;
+    logisticsTitle.textContent = `ETA ${shortAddress(activeRide.dropoffName || "Home")}: ${formatClock(state.suggestion.suggested_departure)}`;
     logisticsText.textContent = state.suggestion.explanation || "Optimal route ready to confirm.";
+    if (homeRidePickupValue) homeRidePickupValue.textContent = pickupDisplay || "Current location";
+    if (homeRideDropoffValue) homeRideDropoffValue.textContent = activeRide.dropoffName || state.suggestion.dropoff || "Suggested destination";
+    if (homeRideMetaLabel) homeRideMetaLabel.textContent = "Departure";
+    if (homeRideMetaValue) homeRideMetaValue.textContent = formatClock(state.suggestion.suggested_departure) || "Ready now";
     contextLocation.textContent = shortAddress(state.suggestion.dropoff || "City Center");
   }
 
@@ -602,6 +955,124 @@ function renderHomeSummary() {
   `;
 
   activityList.innerHTML = latestActivity;
+
+  if (state.liveContext) {
+    if (contextLocation) contextLocation.textContent = state.liveContext.location || "Current area";
+    if (contextHeadline) contextHeadline.textContent = state.liveContext.weather_summary || "Ambient conditions are steady.";
+    if (contextTemperature) {
+      const temp = toFiniteNumber(state.liveContext.temperature_c);
+      const feels = toFiniteNumber(state.liveContext.feels_like_c);
+      contextTemperature.textContent = temp == null
+        ? "Unavailable"
+        : `${Math.round(temp)}C${feels == null ? "" : ` · feels like ${Math.round(feels)}C`}`;
+    }
+    if (contextAqi) {
+      const aqi = toFiniteNumber(state.liveContext.aqi);
+      contextAqi.textContent = aqi == null
+        ? "Unavailable"
+        : `${Math.round(aqi)} US AQI · ${state.liveContext.aqi_label || "Unknown"}`;
+    }
+    if (contextCoords) {
+      contextCoords.textContent = `${Number(state.liveContext.lat).toFixed(3)}, ${Number(state.liveContext.lng).toFixed(3)}`;
+    }
+    if (contextPulse) {
+      contextPulse.textContent = (toFiniteNumber(state.liveContext.aqi) ?? 0) > 100 ? "Air quality elevated" : "Live context synced";
+    }
+  } else {
+    if (contextHeadline) contextHeadline.textContent = "Ambient conditions are steady.";
+    if (contextTemperature) contextTemperature.textContent = "Waiting for GPS";
+    if (contextAqi) contextAqi.textContent = "Waiting for GPS";
+    if (contextCoords) contextCoords.textContent = "Waiting for GPS";
+    if (contextPulse) contextPulse.textContent = "System steady";
+  }
+
+  // Conditionally render connect buttons on homepage cards if accounts not connected
+  const homeRideActions = document.getElementById("homeRideActions");
+  const homeRideContent = document.getElementById("homeRideContent");
+  const homeRideDisconnected = document.getElementById("homeRideDisconnected");
+  const homeRideLoading = document.getElementById("homeRideLoading");
+  
+  if (homeRideActions) {
+    if (state.uberStatus) {
+      if (homeRideLoading) homeRideLoading.classList.add("hidden");
+      homeRideActions.classList.remove("hidden");
+      
+      if (!state.uberStatus.connected) {
+        if (homeRideContent) homeRideContent.classList.add("hidden");
+        if (homeRideDisconnected) homeRideDisconnected.classList.remove("hidden");
+        
+        homeRideActions.innerHTML = `
+          <button onclick="startUberLoginFlow()" class="panel-cta--cyan bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" type="button">
+            Connect Uber
+          </button>
+        `;
+      } else {
+        if (homeRideContent) homeRideContent.classList.remove("hidden");
+        if (homeRideDisconnected) homeRideDisconnected.classList.add("hidden");
+        
+        homeRideActions.innerHTML = `
+          <button class="panel-cta--cyan bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="confirm" type="button">
+            Confirm Ride
+          </button>
+          <button class="secondary-cta px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] transition-colors hover:bg-surface-container-high" data-home-ride-action="dismiss" type="button">
+            Dismiss Suggestion
+          </button>
+          <button class="secondary-cta px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] transition-colors hover:bg-surface-container-high" data-home-ride-action="explore" type="button">
+            Explore More
+          </button>
+        `;
+      }
+    } else {
+      if (homeRideLoading) homeRideLoading.classList.remove("hidden");
+      if (homeRideContent) homeRideContent.classList.add("hidden");
+      if (homeRideDisconnected) homeRideDisconnected.classList.add("hidden");
+      homeRideActions.classList.add("hidden");
+    }
+  }
+
+  const homeFoodActions = document.getElementById("homeFoodActions");
+  const homeFoodContent = document.getElementById("homeFoodContent");
+  const homeFoodDisconnected = document.getElementById("homeFoodDisconnected");
+  const homeFoodLoading = document.getElementById("homeFoodLoading");
+
+  if (homeFoodActions) {
+    if (state.foodStatus) {
+      if (homeFoodLoading) homeFoodLoading.classList.add("hidden");
+      homeFoodActions.classList.remove("hidden");
+      
+      // If we have status and neither Swiggy nor Zomato are connected
+      if (!state.foodStatus.providers?.swiggy?.connected && !state.foodStatus.providers?.zomato?.connected) {
+        if (homeFoodContent) homeFoodContent.classList.add("hidden");
+        if (homeFoodDisconnected) homeFoodDisconnected.classList.remove("hidden");
+        
+        homeFoodActions.innerHTML = `
+          <button onclick="startFoodLoginFlow('swiggy')" class="panel-cta--amber bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" type="button">
+            Connect Swiggy
+          </button>
+        `;
+      } else {
+        if (homeFoodContent) homeFoodContent.classList.remove("hidden");
+        if (homeFoodDisconnected) homeFoodDisconnected.classList.add("hidden");
+        
+        homeFoodActions.innerHTML = `
+          <button class="panel-cta--amber route-link bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-route-target="/food" type="button">
+            Confirm Order
+          </button>
+          <button class="route-link border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-route-target="/food" type="button">
+            Reschedule
+          </button>
+          <button class="route-link border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-route-target="/food" type="button">
+            Explore More
+          </button>
+        `;
+      }
+    } else {
+      if (homeFoodLoading) homeFoodLoading.classList.remove("hidden");
+      if (homeFoodContent) homeFoodContent.classList.add("hidden");
+      if (homeFoodDisconnected) homeFoodDisconnected.classList.add("hidden");
+      homeFoodActions.classList.add("hidden");
+    }
+  }
 }
 
 function renderRidePage() {
@@ -609,13 +1080,45 @@ function renderRidePage() {
   const etaLabel = document.getElementById("rideEtaLabel");
   const rideHistoryList = document.getElementById("rideHistoryList");
   const ridePatternCards = document.getElementById("ridePatternCards");
+  const destinationLabel = document.getElementById("dest-label");
+  const trafficStatus = document.getElementById("traffic-status");
+  const pickupLabel = document.getElementById("ridePickupLabel");
+  const dropoffLabel = document.getElementById("rideDropoffLabel");
+  const recommendationTitle = document.getElementById("rideRecommendationTitle");
+  const recommendationMeta = document.getElementById("rideRecommendationMeta");
+  const activeRide = getActiveRideContext();
 
-  if (state.suggestion) {
-    const destination = shortAddress(state.suggestion.dropoff || "Downtown Studio");
-    const eta = Math.max(1, Math.round(state.suggestion.eta_minutes || 12));
-    const trafficTone = state.suggestion.traffic_delta_minutes > 5 ? "Traffic is elevated" : "Traffic is light";
+  if (activeRide.hasSuggestion) {
+    const destination = shortAddress(activeRide.dropoffName);
+    const eta = Math.max(1, Math.round(activeRide.etaMinutes || 12));
+    const trafficTone = describeTrafficTone(activeRide.trafficDeltaMinutes, eta);
+    const livePrice = state.suggestion?.estimated_price || null;
     heroText.textContent = `Heading to ${destination}? ${trafficTone}, ${eta} mins to arrival.`;
     etaLabel.textContent = `${eta} MINS`;
+    if (destinationLabel) destinationLabel.textContent = activeRide.dropoffName;
+    if (trafficStatus) {
+      trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">warning</span>${escapeHtml(trafficTone)}`;
+    }
+    if (pickupLabel) pickupLabel.textContent = activeRide.pickupName;
+    if (dropoffLabel) dropoffLabel.textContent = activeRide.dropoffName;
+    if (recommendationTitle) recommendationTitle.textContent = activeRide.rideType || "Book your next ride";
+    if (recommendationMeta) {
+      recommendationMeta.textContent = activeRide.explanation || `${eta} min route from ${shortAddress(activeRide.pickupName)} to ${shortAddress(activeRide.dropoffName)}.`;
+      if (livePrice) {
+        recommendationMeta.textContent = `${recommendationMeta.textContent} Live fare: ${livePrice}.`;
+      }
+    }
+  } else {
+    heroText.textContent = "Heading somewhere familiar? Your ride suggestion will appear here once enough route history is available.";
+    etaLabel.textContent = "12 MINS";
+    if (destinationLabel) destinationLabel.textContent = "Recommended route";
+    if (trafficStatus) {
+      trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">warning</span>Heavy Traffic`;
+    }
+    if (pickupLabel) pickupLabel.textContent = "Current location";
+    if (dropoffLabel) dropoffLabel.textContent = "Suggested destination";
+    if (recommendationTitle) recommendationTitle.textContent = "Book your next ride";
+    if (recommendationMeta) recommendationMeta.textContent = "Departure optimized with live traffic context.";
   }
 
   if (rideHistoryList) {
@@ -627,6 +1130,15 @@ function renderRidePage() {
     const cards = (state.upcoming.length ? state.upcoming : state.patterns).slice(0, 3);
     ridePatternCards.innerHTML = cards.length ? cards.map(renderPatternCard).join("") : fallbackPatternCards();
   }
+
+  if (isRideScreenVisible()) {
+    renderRideMap();
+  }
+}
+
+function isRideScreenVisible() {
+  const rideScreen = document.querySelector('[data-route="/rides"]');
+  return Boolean(rideScreen && !rideScreen.classList.contains("hidden"));
 }
 
 function renderFoodPage() {
@@ -634,29 +1146,131 @@ function renderFoodPage() {
   const eta = document.getElementById("foodEtaText");
   const cravingsGrid = document.getElementById("foodCravingsGrid");
   const orderRows = document.getElementById("foodOrdersList");
+  const orderNowBtn = document.getElementById("orderNowBtn");
 
-  if (hero && state.foodSuggestion) {
-    const providerLabel = (state.foodSuggestion.source_platform || "provider").toUpperCase();
-    hero.textContent = `Hungry? ${state.foodSuggestion.item_name || "Your regular order"} from ${state.foodSuggestion.restaurant_name || "your go-to place"} looks timely.`;
-    eta.textContent = `${providerLabel} ETA: ${Math.max(1, Number(state.foodSuggestion.eta_minutes || 30))} mins`;
+  // Find the food screen section
+  const foodScreen = document.querySelector('[data-route="/food"]');
+  let heroImage = null;
+  let heroImageOverlayTitle = null;
+  let heroImageOverlaySubtitle = null;
+  let dayLabel = null;
+
+  if (foodScreen) {
+    // Hero image container: .group.relative with aspect-[4/5]
+    const heroContainer = foodScreen.querySelector('.group.relative');
+    if (heroContainer) {
+      heroImage = heroContainer.querySelector('img');
+      const overlayDiv = heroContainer.querySelector('.absolute.bottom-6');
+      if (overlayDiv) {
+        heroImageOverlayTitle = overlayDiv.querySelector('h2');
+        heroImageOverlaySubtitle = overlayDiv.querySelector('p');
+      }
+    }
+    dayLabel = document.getElementById("foodCurationLabel");
   }
 
-  if (hero && !state.foodSuggestion) {
-    hero.textContent = "Hungry? Connect Swiggy or Zomato to personalize your next meal.";
+  const hasLiveRestaurants = state.topRestaurants.length > 0;
+  const topPick = hasLiveRestaurants ? state.topRestaurants[0] : null;
+  const hasFoodSuggestion = Boolean(state.foodSuggestion);
+
+  if (dayLabel) {
+    const greeting = state.uiGreeting || buildLocalUiGreeting();
+    dayLabel.textContent = greeting.food_label;
   }
 
-  if (eta && !state.foodSuggestion) {
-    eta.textContent = "Delivery estimate appears after sync";
+  // --- Hero Section ---
+  if (hero) {
+    if (hasFoodSuggestion) {
+      hero.textContent = `Hungry? ${state.foodSuggestion.item_name || "Your regular order"} from ${state.foodSuggestion.restaurant_name || "your go-to place"} looks timely.`;
+    } else if (state.topRestaurantsLoading) {
+      hero.textContent = "Finding the best restaurants near you...";
+    } else if (topPick) {
+      hero.textContent = `Hungry? ${topPick.name} is trending near you right now.`;
+    } else {
+      hero.textContent = "Hungry? Connect Swiggy or Zomato to personalize your next meal.";
+    }
   }
 
+  if (eta) {
+    if (hasFoodSuggestion) {
+      const providerLabel = (state.foodSuggestion.source_platform || "provider").toUpperCase();
+      const etaLabel = `${providerLabel} ETA: ${Math.max(1, Number(state.foodSuggestion.eta_minutes || 30))} mins`;
+      const priceLabel = state.foodSuggestion.estimated_price_label || formatPrice(state.foodSuggestion.estimated_price);
+      eta.textContent = priceLabel && priceLabel !== "-"
+        ? `${etaLabel} • ${priceLabel}`
+        : etaLabel;
+    } else if (state.topRestaurantsLoading) {
+      eta.innerHTML = `<span class="flex items-center gap-2"><span class="material-symbols-outlined text-sm animate-spin">progress_activity</span> Fetching live data from Swiggy...</span>`;
+    } else if (topPick) {
+      const deliveryTime = topPick.delivery_time_mins ? `${topPick.delivery_time_mins} min delivery` : '';
+      const rating = topPick.avg_rating ? `★ ${topPick.avg_rating}` : '';
+      const pieces = [topPick.cuisines, deliveryTime, rating, topPick.cost_for_two].filter(Boolean);
+      eta.textContent = pieces.join(' • ');
+    } else {
+      eta.textContent = "Delivery estimate appears after sync";
+    }
+  }
+
+  // --- Hero Image ---
+  if (heroImage && hasFoodSuggestion && state.foodSuggestion?.image_url) {
+    heroImage.src = state.foodSuggestion.image_url;
+    heroImage.alt = state.foodSuggestion.restaurant_name || state.foodSuggestion.item_name || "Suggested order";
+  } else if (heroImage && topPick?.image_url) {
+    heroImage.src = topPick.image_url;
+    heroImage.alt = topPick.name;
+  }
+  if (heroImageOverlayTitle && hasFoodSuggestion) {
+    heroImageOverlayTitle.textContent = state.foodSuggestion.restaurant_name || state.foodSuggestion.item_name || "Suggested order";
+  } else if (heroImageOverlayTitle && topPick) {
+    heroImageOverlayTitle.textContent = topPick.name;
+  }
+  if (heroImageOverlaySubtitle && hasFoodSuggestion) {
+    const subtitleBits = [
+      state.foodSuggestion.item_name,
+      state.foodSuggestion.estimated_price_label || formatPrice(state.foodSuggestion.estimated_price),
+    ].filter(Boolean);
+    heroImageOverlaySubtitle.textContent = subtitleBits.join(' • ') || (state.foodSuggestion.cuisine || 'Suggested meal');
+  } else if (heroImageOverlaySubtitle && topPick) {
+    heroImageOverlaySubtitle.textContent = topPick.cuisines || 'Multi-Cuisine';
+  }
+
+  // --- Order Now button deeplink ---
+  if (orderNowBtn && hasFoodSuggestion && state.foodSuggestion?.deeplink) {
+    orderNowBtn.onclick = (e) => {
+      e.preventDefault();
+      window.open(state.foodSuggestion.deeplink, '_blank', 'noopener,noreferrer');
+      showToast(`Opening ${state.foodSuggestion.restaurant_name || 'your suggestion'} on Swiggy...`);
+    };
+  } else if (orderNowBtn && topPick?.deeplink) {
+    orderNowBtn.onclick = (e) => {
+      e.preventDefault();
+      window.open(topPick.deeplink, '_blank', 'noopener,noreferrer');
+      showToast(`Opening ${topPick.name} on Swiggy...`);
+    };
+  }
+
+  // --- Cravings Grid (Live Restaurants) ---
   if (cravingsGrid) {
-    const cards = state.foodSuggestion
-      ? [state.foodSuggestion, ...(state.foodSuggestion.alternatives || [])].slice(0, 2)
-      : state.foodPatterns.slice(0, 2);
-
-    cravingsGrid.innerHTML = cards.length ? cards.map(renderCravingCard).join("") : fallbackCravingCards();
+    if (hasFoodSuggestion) {
+      const cards = [state.foodSuggestion, ...(state.foodSuggestion.alternatives || [])].slice(0, 3);
+      cravingsGrid.innerHTML = cards.length ? cards.map(renderCravingCard).join("") : fallbackCravingCards();
+    } else if (state.topRestaurantsLoading) {
+      cravingsGrid.innerHTML = renderLoadingCravingCards();
+    } else if (hasLiveRestaurants) {
+      const altRestaurants = state.topRestaurants.slice(1, 4);
+      cravingsGrid.innerHTML = altRestaurants.map(renderLiveRestaurantCard).join("");
+      // Update section heading
+      const sectionHeading = cravingsGrid.closest('section')?.querySelector('h3');
+      if (sectionHeading) sectionHeading.textContent = 'More top restaurants near you';
+    } else {
+      const cards = state.foodSuggestion
+        ? [state.foodSuggestion, ...(state.foodSuggestion.alternatives || [])].slice(0, 2)
+        : state.foodPatterns.slice(0, 2);
+      cravingsGrid.innerHTML = cards.length ? cards.map(renderCravingCard).join("") : fallbackCravingCards();
+    }
   }
 
+  // --- Recent Orders (unchanged logic) ---
   if (orderRows) {
     const orders = state.foodHistory.slice(0, 3);
     orderRows.innerHTML = orders.length ? orders.map(renderFoodOrder).join("") : fallbackFoodOrders();
@@ -664,6 +1278,50 @@ function renderFoodPage() {
       button.addEventListener("click", () => showToast("Order confirmed locally. No checkout flow was triggered."));
     });
   }
+}
+
+function renderLiveRestaurantCard(restaurant) {
+  const imgSrc = restaurant.image_url || '';
+  const deliveryLabel = restaurant.delivery_time_mins ? `${restaurant.delivery_time_mins} MINS` : 'DELIVERY';
+  const ratingHtml = restaurant.avg_rating
+    ? `<div class="mb-2 flex items-center gap-1 text-sm text-on-surface-variant"><span class="material-symbols-outlined text-xs" style="font-variation-settings: 'FILL' 1; color: #4CAF50;">star</span>${escapeHtml(String(restaurant.avg_rating))}${restaurant.total_ratings ? ` <span class="text-outline text-xs">(${escapeHtml(String(restaurant.total_ratings))})</span>` : ''}</div>`
+    : '';
+  const offerHtml = restaurant.offer ? `<p class="mb-2 text-xs" style="color: #4CAF50;">${escapeHtml(restaurant.offer)}</p>` : '';
+  const deeplink = restaurant.deeplink || 'https://www.swiggy.com/';
+
+  return `
+    <article class="bg-background p-8 transition-colors duration-500 hover:bg-surface-container-low group">
+      <div class="mb-8 aspect-square overflow-hidden bg-surface-container-low">
+        ${imgSrc
+          ? `<img alt="${escapeHtml(restaurant.name)}" class="h-full w-full object-cover grayscale-[30%] group-hover:scale-110 transition-transform duration-700" src="${escapeHtml(imgSrc)}" />`
+          : `<div class="h-full w-full flex items-center justify-center"><span class="material-symbols-outlined text-4xl text-outline-variant">restaurant</span></div>`}
+      </div>
+      <div class="mb-2 flex items-start justify-between gap-4">
+        <h4 class="font-headline text-xl text-primary">${escapeHtml(restaurant.name)}</h4>
+        <span class="font-label text-[10px] text-on-surface-variant whitespace-nowrap">${escapeHtml(deliveryLabel)}</span>
+      </div>
+      ${ratingHtml}
+      <p class="mb-2 text-sm font-light leading-relaxed text-on-surface-variant">${escapeHtml(restaurant.cuisines || '')}</p>
+      ${restaurant.cost_for_two ? `<p class="mb-2 text-xs text-outline">${escapeHtml(String(restaurant.cost_for_two))}</p>` : ''}
+      ${offerHtml}
+      <a href="${escapeHtml(deeplink)}" target="_blank" rel="noopener noreferrer"
+         class="block text-center w-full py-4 border border-outline-variant font-label text-[10px] uppercase tracking-widest transition-all duration-300 hover:border-primary hover:bg-primary hover:text-on-primary mt-4">
+        Order on Swiggy
+      </a>
+    </article>
+  `;
+}
+
+function renderLoadingCravingCards() {
+  const skeleton = `
+    <article class="bg-background p-8">
+      <div class="mb-8 aspect-square overflow-hidden bg-surface-container-high" style="animation: pulse 1.8s ease-in-out infinite;"></div>
+      <div class="mb-4 h-5 w-3/4 bg-surface-container-high" style="animation: pulse 1.8s ease-in-out infinite;"></div>
+      <div class="mb-2 h-4 w-full bg-surface-container-high" style="animation: pulse 1.8s ease-in-out infinite;"></div>
+      <div class="mb-8 h-4 w-2/3 bg-surface-container-high" style="animation: pulse 1.8s ease-in-out infinite;"></div>
+      <div class="h-12 w-full bg-surface-container-high" style="animation: pulse 1.8s ease-in-out infinite;"></div>
+    </article>`;
+  return skeleton + skeleton + skeleton;
 }
 
 function renderFoodStatus() {
@@ -789,7 +1447,10 @@ async function startFoodLoginFlow(provider) {
       try {
         const result = await post(`/api/food/login/${provider}/cookie`, { cookie: cookie });
         if (result.status === "logged_in") {
-          showToast(`${providerLabel(provider)} successfully connected via cookie.`);
+          sessionStorage.setItem("syncNotification", `${providerLabel(provider)} account connected. Food history sync is now in progress.`);
+          sessionStorage.setItem("autoSyncProvider", `food_${provider}`);
+          window.location.reload();
+          return;
         } else {
           showToast(result.message || `Failed to connect ${providerLabel(provider)} with the provided cookie.`);
         }
@@ -940,22 +1601,29 @@ function updateBrowserFrame(result) {
 async function handleUberLoginComplete() {
   stopScreenshotPolling();
   await API.uberFinishLogin();
-  showToast("Uber login successful. You can sync your ride history now.");
   hideBrowserViewer();
-  await loadUberStatus();
+  
+  // Set notification and sync flag to trigger after reload
+  sessionStorage.setItem("syncNotification", "Uber account connected. Ride history sync is now in progress.");
+  sessionStorage.setItem("autoSyncProvider", "uber");
+  window.location.reload();
 }
 
 async function handleFoodLoginComplete(provider) {
   if (!provider) return;
   stopScreenshotPolling();
   const response = await API.foodFinishLogin(provider);
+  hideBrowserViewer();
+  
   if (response?.error || response?.status === "error") {
     showToast(response.error || response.message || `${providerLabel(provider)} login verification failed.`);
+    await loadFoodStatus();
   } else {
-    showToast(`${providerLabel(provider)} login successful. Sync food history next.`);
+    // Set notification and sync flag to trigger after reload
+    sessionStorage.setItem("syncNotification", `${providerLabel(provider)} account connected. Food history sync is now in progress.`);
+    sessionStorage.setItem("autoSyncProvider", `food_${provider}`);
+    window.location.reload();
   }
-  hideBrowserViewer();
-  await loadFoodStatus();
 }
 
 async function syncUberRideHistory() {
@@ -964,6 +1632,8 @@ async function syncUberRideHistory() {
     syncBtn.disabled = true;
     syncBtn.textContent = "Syncing";
   }
+
+  showToast("Ride history sync started.");
 
   try {
     const response = await API.syncUberHistory();
@@ -992,6 +1662,8 @@ async function syncFoodHistory() {
     syncBtn.disabled = true;
     syncBtn.textContent = "Syncing";
   }
+
+  showToast("Food history sync started.");
 
   try {
     const response = await API.syncFoodHistory();
@@ -1090,7 +1762,7 @@ function renderCravingCard(entry, index) {
   const subtitle = entry.restaurant_name || "Recommended restaurant";
   const insight = entry.explanation
     ? entry.explanation
-    : `${source} ETA ${eta} mins • ${formatPrice(entry.estimated_price || entry.avg_price)}`;
+    : `${source} ETA ${eta} mins • ${entry.estimated_price_label || formatPrice(entry.estimated_price || entry.avg_price)}`;
 
   return `
     <article class="craving-card">
@@ -1166,11 +1838,390 @@ function providerLabel(provider) {
   return p ? `${p.charAt(0).toUpperCase()}${p.slice(1)}` : "Provider";
 }
 
+function initializeRideMap(mapEl, pickupLat, pickupLng, dropoffLat, dropoffLng, pickupName, dropoffName) {
+  const centerLat = (pickupLat + dropoffLat) / 2;
+  const centerLng = (pickupLng + dropoffLng) / 2;
+
+  const map = window.L.map(mapEl, {
+    center: [centerLat, centerLng],
+    zoom: 14,
+    zoomControl: true,
+    attributionControl: true,
+  });
+
+  window.L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
+    maxZoom: 20,
+  }).addTo(map);
+
+  map.zoomControl.setPosition("bottomright");
+
+  rideMapState.map = map;
+  rideMapState.pickupMarker = window.L.marker([pickupLat, pickupLng], {
+    icon: createPickupIcon(),
+    draggable: false,
+    title: `Pickup: ${pickupName}`,
+  }).addTo(map);
+
+  rideMapState.dropoffMarker = window.L.marker([dropoffLat, dropoffLng], {
+    icon: createDropoffIcon(),
+    draggable: false,
+    title: `Drop-off: ${dropoffName}`,
+  }).addTo(map);
+
+  rideMapState.routingControl = window.L.Routing.control({
+    waypoints: [
+      window.L.latLng(pickupLat, pickupLng),
+      window.L.latLng(dropoffLat, dropoffLng),
+    ],
+    routeWhileDragging: false,
+    addWaypoints: false,
+    show: false,
+    fitSelectedRoutes: false,
+    lineOptions: {
+      styles: [
+        {color: "#cbc6bd", opacity: 0.8, weight: 5},
+        {color: "#494640", opacity: 0.4, weight: 10},
+      ],
+      addWaypoints: false,
+    },
+    createMarker: () => null,
+  }).addTo(map);
+
+  rideMapState.routingControl.on("routesfound", (event) => {
+    const route = event.routes?.[0];
+    const trafficEl = document.getElementById("traffic-status");
+    if (!route || !trafficEl) return;
+
+    const distKm = (route.summary.totalDistance / 1000).toFixed(1);
+    const timeMin = Math.round(route.summary.totalTime / 60);
+    trafficEl.innerHTML = `<span class="material-symbols-outlined text-sm">route</span>${escapeHtml(`${distKm} km · ~${timeMin} min drive`)}`;
+  });
+
+  updateRideMarkerPopups(pickupName, dropoffName);
+  fitRideMapBounds(pickupLat, pickupLng, dropoffLat, dropoffLng);
+}
+
+function updateRideMap(pickupLat, pickupLng, dropoffLat, dropoffLng, pickupName, dropoffName) {
+  if (!rideMapState.map || !rideMapState.pickupMarker || !rideMapState.dropoffMarker || !rideMapState.routingControl) return;
+
+  rideMapState.pickupMarker.setLatLng([pickupLat, pickupLng]);
+  rideMapState.dropoffMarker.setLatLng([dropoffLat, dropoffLng]);
+  rideMapState.pickupMarker.options.title = `Pickup: ${pickupName}`;
+  rideMapState.dropoffMarker.options.title = `Drop-off: ${dropoffName}`;
+  updateRideMarkerPopups(pickupName, dropoffName);
+
+  rideMapState.routingControl.setWaypoints([
+    window.L.latLng(pickupLat, pickupLng),
+    window.L.latLng(dropoffLat, dropoffLng),
+  ]);
+
+  fitRideMapBounds(pickupLat, pickupLng, dropoffLat, dropoffLng);
+}
+
+function updateRideMarkerPopups(pickupName, dropoffName) {
+  rideMapState.pickupMarker?.bindPopup(renderRidePopup("Pickup", pickupName));
+  rideMapState.dropoffMarker?.bindPopup(renderRidePopup("Drop-off", dropoffName));
+}
+
+function renderRidePopup(label, value) {
+  return `<div style="text-align:center;"><span style="font-size:9px; text-transform:uppercase; letter-spacing:2px; color:#a39d94;">${escapeHtml(label)}</span><br><strong style="font-size:13px; color:#eae4e0;">${escapeHtml(value)}</strong></div>`;
+}
+
+function createPickupIcon() {
+  return window.L.divIcon({
+    className: "pickup-marker",
+    html: '<div style="width: 20px; height: 20px; border-radius: 50%; border: 3px solid #cbc6bd; background: rgba(15,14,13,0.7); box-shadow: 0 0 20px rgba(203,198,189,0.4), 0 0 40px rgba(203,198,189,0.15); position: relative;"><div style="position: absolute; inset: -8px; border-radius: 50%; border: 1px solid rgba(203,198,189,0.15); animation: routePulse 2s ease-in-out infinite;"></div></div>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    popupAnchor: [0, -16],
+  });
+}
+
+function createDropoffIcon() {
+  return window.L.divIcon({
+    className: "dropoff-marker",
+    html: '<div style="width: 18px; height: 18px; background: #cbc6bd; box-shadow: 0 0 20px rgba(203,198,189,0.5), 0 0 40px rgba(203,198,189,0.2); position: relative;"><div style="position: absolute; inset: -8px; border: 1px solid rgba(203,198,189,0.15); animation: routePulse 2s ease-in-out infinite 0.5s;"></div></div>',
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+    popupAnchor: [0, -14],
+  });
+}
+
+function fitRideMapBounds(pickupLat, pickupLng, dropoffLat, dropoffLng) {
+  if (!rideMapState.map) return;
+  const bounds = window.L.latLngBounds([pickupLat, pickupLng], [dropoffLat, dropoffLng]);
+  rideMapState.lastBounds = bounds.pad(0.18);
+  rideMapState.map.fitBounds(rideMapState.lastBounds, {
+    padding: [28, 28],
+    maxZoom: 15,
+    animate: false,
+  });
+}
+
+function refitRideMap() {
+  if (!rideMapState.map || !rideMapState.lastBounds) return;
+  rideMapState.map.invalidateSize();
+  rideMapState.map.fitBounds(rideMapState.lastBounds, {
+    padding: [28, 28],
+    maxZoom: 15,
+    animate: false,
+  });
+}
+
+// ───────────────────────────────────────────────────────────────
+// Geocoding: resolve address names → lat/lng via Nominatim
+// ───────────────────────────────────────────────────────────────
+
+const geocodeCache = {};
+
+async function geocodeAddress(address) {
+  if (!address || address === "Current location" || address === "Suggested destination" || address === "Unknown pickup") {
+    return null;
+  }
+
+  const cacheKey = address.trim().toLowerCase();
+  if (geocodeCache[cacheKey]) return geocodeCache[cacheKey];
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`;
+    const resp = await fetch(url, {
+      headers: { "Accept": "application/json" },
+    });
+    if (!resp.ok) return null;
+
+    const results = await resp.json();
+    if (!results || !results.length) {
+      // Try with a simplified query (remove common suffixes like "Road", "Street" etc.)
+      geocodeCache[cacheKey] = null;
+      return null;
+    }
+
+    const result = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+    if (Number.isFinite(result.lat) && Number.isFinite(result.lng)) {
+      geocodeCache[cacheKey] = result;
+      return result;
+    }
+    return null;
+  } catch (err) {
+    console.warn("Geocoding failed for:", address, err);
+    return null;
+  }
+}
+
+function getActiveRideContext() {
+  const suggestion = state.suggestion || {};
+  const history = Array.isArray(state.history) ? state.history : [];
+  const primaryHistory = history.find((ride) => {
+    if (!ride) return false;
+    if (suggestion.dropoff && ride.dropoff_address) {
+      return String(ride.dropoff_address).trim().toLowerCase() === String(suggestion.dropoff).trim().toLowerCase();
+    }
+    return Boolean(ride.dropoff_address);
+  }) || history[0] || null;
+
+  const pickupName = firstNonEmpty(
+    suggestion.pickup,
+    suggestion.pickup_address,
+    state.userLat != null && state.userLng != null ? "Current location" : null,
+    primaryHistory?.pickup_address,
+    "Current location"
+  );
+  const dropoffName = firstNonEmpty(
+    suggestion.dropoff,
+    suggestion.dropoff_address,
+    primaryHistory?.dropoff_address,
+    state.patterns?.[0]?.dropoff,
+    state.upcoming?.[0]?.dropoff,
+    "Suggested destination"
+  );
+
+  // Get coordinates from all possible sources (may be null)
+  const pickupLat = toCoordinate(
+    suggestion.pickup_lat ?? suggestion.origin_lat ?? state.userLat ?? primaryHistory?.pickup_lat
+  );
+  const pickupLng = toCoordinate(
+    suggestion.pickup_lng ?? suggestion.origin_lng ?? state.userLng ?? primaryHistory?.pickup_lng
+  );
+  const dropoffLat = toCoordinate(
+    suggestion.dropoff_lat ?? suggestion.destination_lat ?? primaryHistory?.dropoff_lat
+  );
+  const dropoffLng = toCoordinate(
+    suggestion.dropoff_lng ?? suggestion.destination_lng ?? primaryHistory?.dropoff_lng
+  );
+
+  return {
+    hasSuggestion: Boolean(state.suggestion || primaryHistory),
+    pickupName,
+    dropoffName,
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    etaMinutes: Number(suggestion.eta_minutes ?? suggestion.duration_minutes ?? primaryHistory?.duration_minutes ?? 12),
+    trafficDeltaMinutes: Number(suggestion.traffic_delta_minutes ?? 0),
+    explanation: suggestion.explanation || null,
+    rideType: suggestion.ride_type || primaryHistory?.ride_type || "UberX",
+    estimatedPrice: suggestion.estimated_price || null,
+  };
+}
+
+async function renderRideMap(retryCount = 0) {
+  const mapEl = document.getElementById("ride-map");
+  
+  // Robust check for Leaflet and Routing plugin with retry
+  if (typeof window.L === "undefined" || !window.L.Routing) {
+    if (retryCount < 5) {
+      setTimeout(() => renderRideMap(retryCount + 1), 150);
+      return;
+    }
+    console.error("Leaflet or Routing plugin not found after retries.");
+    return;
+  }
+
+  if (!mapEl) return;
+  const activeRide = getActiveRideContext();
+
+  let pickupLat = activeRide.pickupLat;
+  let pickupLng = activeRide.pickupLng;
+  let dropoffLat = activeRide.dropoffLat;
+  let dropoffLng = activeRide.dropoffLng;
+  const pickupName = activeRide.pickupName;
+  const dropoffName = activeRide.dropoffName;
+
+  // Geocode addresses when coordinates are missing
+  const needsPickupGeocode = pickupLat == null || pickupLng == null;
+  const needsDropoffGeocode = dropoffLat == null || dropoffLng == null;
+
+  if (needsPickupGeocode || needsDropoffGeocode) {
+    const geocodePromises = [];
+
+    if (needsPickupGeocode && pickupName && pickupName !== "Current location") {
+      geocodePromises.push(geocodeAddress(pickupName).then(result => {
+        if (result) { pickupLat = result.lat; pickupLng = result.lng; }
+      }));
+    }
+
+    if (needsDropoffGeocode && dropoffName && dropoffName !== "Suggested destination") {
+      geocodePromises.push(geocodeAddress(dropoffName).then(result => {
+        if (result) { dropoffLat = result.lat; dropoffLng = result.lng; }
+      }));
+    }
+
+    if (geocodePromises.length > 0) {
+      await Promise.allSettled(geocodePromises);
+    }
+  }
+
+  // If we still don't have pickup coords, anchor near a known point first.
+  if (pickupLat == null || pickupLng == null) {
+    if (dropoffLat != null && dropoffLng != null) {
+      pickupLat = dropoffLat + 0.01;
+      pickupLng = dropoffLng - 0.01;
+    } else if (state.userLat != null && state.userLng != null) {
+      pickupLat = state.userLat;
+      pickupLng = state.userLng;
+    } else {
+      pickupLat = 22.5726;
+      pickupLng = 73.0071;
+    }
+  }
+
+  // If we still don't have dropoff coords, keep it local to the pickup.
+  if (dropoffLat == null || dropoffLng == null) {
+    dropoffLat = pickupLat - 0.01;
+    dropoffLng = pickupLng + 0.01;
+  }
+
+  // Avoid globe-scale zoom-outs from stale history or mismatched geocoding.
+  const routeDistanceKm = haversineDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
+  if (routeDistanceKm > 120) {
+    const canTrustUserLocation = state.userLat != null && state.userLng != null;
+    const anchorLat = canTrustUserLocation ? state.userLat : pickupLat;
+    const anchorLng = canTrustUserLocation ? state.userLng : pickupLng;
+    pickupLat = anchorLat;
+    pickupLng = anchorLng;
+    dropoffLat = anchorLat + 0.012;
+    dropoffLng = anchorLng + 0.016;
+  }
+
+  if (!rideMapState.initialized) {
+    initializeRideMap(mapEl, pickupLat, pickupLng, dropoffLat, dropoffLng, pickupName, dropoffName);
+    rideMapState.initialized = true;
+  } else {
+    updateRideMap(pickupLat, pickupLng, dropoffLat, dropoffLng, pickupName, dropoffName);
+  }
+
+  window.requestAnimationFrame(() => {
+    refitRideMap();
+    if (rideMapState.map) {
+      rideMapState.map.invalidateSize();
+    }
+    setTimeout(() => {
+      refitRideMap();
+      if (rideMapState.map) {
+        rideMapState.map.invalidateSize();
+      }
+    }, 120);
+  });
+}
+
+function describeTrafficTone(trafficDeltaMinutes, etaMinutes) {
+  const delta = Number(trafficDeltaMinutes || 0);
+  const eta = Number(etaMinutes || 0);
+  if (delta >= 8 || eta >= 30) return "Traffic is heavy";
+  if (delta >= 4 || eta >= 18) return "Traffic is moderate";
+  return "Traffic is light";
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function haversineDistanceKm(lat1, lng1, lat2, lng2) {
+  const toRad = (value) => value * (Math.PI / 180);
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+function toCoordinate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  // Filter out 0 to avoid Null Island (0,0) defaults from empty/bad data
+  return Number.isFinite(num) && num !== 0 ? num : null;
+}
+
 function renderRoute(pathname) {
   document.querySelectorAll(".screen").forEach((screen) => {
     screen.classList.toggle("hidden", screen.dataset.route !== pathname);
   });
+
+  if (pathname === "/rides" && isRideScreenVisible()) {
+    window.requestAnimationFrame(() => {
+      renderRideMap();
+      setTimeout(() => {
+        refitRideMap();
+      }, 80);
+    });
+  }
 }
+
 
 function navigate(pathname) {
   const next = ROUTES.has(pathname) ? pathname : "/";

@@ -4,12 +4,16 @@ import base64
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from groq import Groq
+from dotenv import load_dotenv
+import requests
 
 from . import database as db
 from . import food_client
@@ -20,6 +24,7 @@ from . import suggestion_engine
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+load_dotenv()
 
 app = FastAPI(title="Proactive Ride Assistant", version="1.0.0")
 
@@ -27,6 +32,10 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 AUTH_COOKIE_NAME = "proactive_assistant_auth"
+IST = timezone(timedelta(hours=5, minutes=30))
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 
 
 # ── Startup / Shutdown ────────────────────────────────────────────────────────
@@ -147,15 +156,336 @@ def _error_response(message: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"error": message})
 
 
+async def _enrich_ride_suggestion_with_live_data(suggestion: dict | None, lat: float | None, lng: float | None) -> dict | None:
+    if not suggestion:
+        return None
+
+    pickup_lat = lat if lat is not None else suggestion.get("pickup_lat")
+    pickup_lng = lng if lng is not None else suggestion.get("pickup_lng")
+    dropoff_lat = suggestion.get("dropoff_lat")
+    dropoff_lng = suggestion.get("dropoff_lng")
+
+    if None in (pickup_lat, pickup_lng, dropoff_lat, dropoff_lng):
+        return suggestion
+
+    try:
+        live_data = await uber_client.scrape_live_estimates(
+            float(pickup_lat),
+            float(pickup_lng),
+            float(dropoff_lat),
+            float(dropoff_lng),
+        )
+    except Exception as exc:
+        log.warning("Ride live-data enrichment failed: %s", exc)
+        return suggestion
+
+    best_estimate = (live_data or {}).get("best_estimate") or {}
+    if not best_estimate:
+        return suggestion
+
+    enriched = dict(suggestion)
+    enriched["live_data"] = True
+    enriched["live_context"] = {
+        "source": "uber",
+        "estimate_count": len((live_data or {}).get("estimates") or []),
+    }
+
+    if best_estimate.get("ride_type"):
+        enriched["ride_type"] = best_estimate["ride_type"]
+    if best_estimate.get("price_text"):
+        enriched["estimated_price"] = best_estimate["price_text"]
+    if best_estimate.get("low_estimate") is not None or best_estimate.get("high_estimate") is not None:
+        low = best_estimate.get("low_estimate")
+        high = best_estimate.get("high_estimate")
+        if low is not None and high is not None:
+            enriched["price_range"] = {"low": low, "high": high}
+            enriched["estimated_price_value"] = high
+        else:
+            enriched["estimated_price_value"] = high if high is not None else low
+    if best_estimate.get("eta_minutes") is not None:
+        enriched["eta_minutes"] = best_estimate["eta_minutes"]
+
+    if enriched.get("eta_minutes") is not None and enriched.get("duration_minutes") is not None:
+        delta = int(round(float(enriched["eta_minutes"]) - float(enriched["duration_minutes"])))
+        enriched["traffic_delta_minutes"] = max(delta, 0)
+
+    return enriched
+
+
+async def _enrich_food_suggestion_with_live_data(
+    suggestion: dict | None,
+    lat: float | None,
+    lng: float | None,
+) -> dict | None:
+    if not suggestion or suggestion.get("is_fallback"):
+        return suggestion
+
+    try:
+        live_match = await food_client.get_live_match_for_suggestion(
+            restaurant_name=suggestion.get("restaurant_name") or "",
+            item_name=suggestion.get("item_name"),
+            lat=lat,
+            lng=lng,
+        )
+    except Exception as exc:
+        log.warning("Food live-data enrichment failed: %s", exc)
+        return suggestion
+
+    if not live_match:
+        return suggestion
+
+    enriched = dict(suggestion)
+    enriched["live_data"] = True
+    enriched["live_context"] = {
+        "source": "swiggy",
+        "match_score": live_match.get("match_score"),
+    }
+    enriched["restaurant_name"] = live_match.get("restaurant_name") or enriched.get("restaurant_name")
+    enriched["item_name"] = live_match.get("item_name") or enriched.get("item_name")
+    if live_match.get("item_price") is not None:
+        enriched["estimated_price"] = live_match["item_price"]
+    elif live_match.get("cost_for_two"):
+        enriched["estimated_price_label"] = live_match["cost_for_two"]
+    if live_match.get("delivery_time_mins") is not None:
+        enriched["eta_minutes"] = live_match["delivery_time_mins"]
+    if live_match.get("deeplink"):
+        enriched["deeplink"] = live_match["deeplink"]
+    if live_match.get("offer"):
+        enriched["offer"] = live_match["offer"]
+    if live_match.get("image_url"):
+        enriched["image_url"] = live_match["image_url"]
+    if live_match.get("is_open") is not None:
+        enriched["is_open"] = live_match["is_open"]
+
+    return enriched
+
+
 class LoginPayload(BaseModel):
     identifier: str
     full_name: str = ""
+
+
+class GoogleLoginPayload(BaseModel):
+    credential: str
+
+
+def _time_of_day(dt: datetime) -> str:
+    hour = dt.hour
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
+def _build_fallback_greeting(profile: Optional[dict]) -> dict:
+    now = datetime.now(IST)
+    weekday = now.strftime("%A")
+    time_of_day = _time_of_day(now)
+    first_name = (profile or {}).get("firstName") or "there"
+    title_time = time_of_day.title()
+    return {
+        "heading": f"Good {time_of_day}, {first_name}",
+        "home_label": f"Proactive {title_time} Brief",
+        "home_summary": f"Your proactive assistant has mapped the next best ride and dining moves for the {time_of_day}.",
+        "food_label": f"{weekday} {title_time} Curation",
+        "time_of_day": time_of_day,
+        "weekday": weekday,
+        "model": None,
+        "source": "fallback",
+    }
+
+
+def _build_llm_greeting(profile: Optional[dict]) -> dict:
+    fallback = _build_fallback_greeting(profile)
+    if not GROQ_API_KEY:
+        return fallback
+
+    now = datetime.now(IST)
+    weekday = now.strftime("%A")
+    time_of_day = _time_of_day(now)
+    first_name = (profile or {}).get("firstName") or "there"
+    prompt = (
+        "Return strict JSON with keys heading, home_label, home_summary, food_label. "
+        "Write concise premium UI copy for a proactive assistant app. "
+        f"It is currently {weekday} {time_of_day}. "
+        f"The user's first name is {first_name!r}. "
+        "Make the wording time-aware, natural, and brief."
+    )
+
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You are a UX copywriter. Respond with valid JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        payload = json.loads(content)
+        return {
+            "heading": str(payload.get("heading") or fallback["heading"]),
+            "home_label": str(payload.get("home_label") or fallback["home_label"]),
+            "home_summary": str(payload.get("home_summary") or fallback["home_summary"]),
+            "food_label": str(payload.get("food_label") or fallback["food_label"]),
+            "time_of_day": time_of_day,
+            "weekday": weekday,
+            "model": GROQ_MODEL,
+            "source": "llm",
+        }
+    except Exception as exc:
+        log.warning("Greeting LLM call failed, using fallback: %s", exc)
+        return fallback
 
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
     profile = _auth_profile_from_request(request)
     return {"authenticated": bool(profile), "profile": profile}
+
+
+@app.get("/api/auth/google/config")
+def google_auth_config():
+    return {
+        "enabled": bool(GOOGLE_CLIENT_ID),
+        "client_id": GOOGLE_CLIENT_ID if GOOGLE_CLIENT_ID else None,
+    }
+
+
+@app.get("/api/ui/greeting")
+def ui_greeting(request: Request):
+    profile = _auth_profile_from_request(request)
+    return _build_llm_greeting(profile)
+
+
+def _aqi_label(aqi: Optional[float]) -> str:
+    if aqi is None:
+        return "Unavailable"
+    if aqi <= 50:
+        return "Good"
+    if aqi <= 100:
+        return "Moderate"
+    if aqi <= 150:
+        return "Unhealthy for sensitive groups"
+    if aqi <= 200:
+        return "Unhealthy"
+    if aqi <= 300:
+        return "Very unhealthy"
+    return "Hazardous"
+
+
+def _weather_summary(code: Optional[int], temp_c: Optional[float]) -> str:
+    code_map = {
+        0: "Clear skies",
+        1: "Mostly clear",
+        2: "Partly cloudy",
+        3: "Overcast",
+        45: "Foggy",
+        48: "Foggy",
+        51: "Light drizzle",
+        61: "Light rain",
+        63: "Rain",
+        65: "Heavy rain",
+        71: "Light snow",
+        80: "Rain showers",
+        95: "Thunderstorms",
+    }
+    weather = code_map.get(code, "Conditions steady")
+    if temp_c is None:
+        return weather
+    return f"{weather}, {round(temp_c)}C"
+
+
+@app.get("/api/context/live")
+def live_context(
+    lat: float = Query(...),
+    lng: float = Query(...),
+):
+    headers = {"User-Agent": "proactive-assistant/1.0 (local-development)"}
+    location_name = None
+
+    try:
+        geo_resp = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={
+                "format": "jsonv2",
+                "lat": lat,
+                "lon": lng,
+                "zoom": 14,
+                "addressdetails": 1,
+            },
+            headers=headers,
+            timeout=8,
+        )
+        geo_resp.raise_for_status()
+        geo_data = geo_resp.json()
+        address = geo_data.get("address") or {}
+        location_name = (
+            address.get("suburb")
+            or address.get("neighbourhood")
+            or address.get("city_district")
+            or address.get("city")
+            or address.get("town")
+            or address.get("state")
+        )
+        if not location_name and geo_data.get("display_name"):
+            location_name = str(geo_data["display_name"]).split(",")[0].strip()
+    except Exception as exc:
+        log.warning("Reverse geocoding failed: %s", exc)
+
+    weather_data = {}
+    try:
+        weather_resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lng,
+                "current": "temperature_2m,apparent_temperature,weather_code",
+                "timezone": "auto",
+            },
+            timeout=8,
+        )
+        weather_resp.raise_for_status()
+        weather_data = weather_resp.json().get("current", {}) or {}
+    except Exception as exc:
+        log.warning("Weather lookup failed: %s", exc)
+
+    air_data = {}
+    try:
+        air_resp = requests.get(
+            "https://air-quality-api.open-meteo.com/v1/air-quality",
+            params={
+                "latitude": lat,
+                "longitude": lng,
+                "current": "us_aqi",
+                "timezone": "auto",
+            },
+            timeout=8,
+        )
+        air_resp.raise_for_status()
+        air_data = air_resp.json().get("current", {}) or {}
+    except Exception as exc:
+        log.warning("Air quality lookup failed: %s", exc)
+
+    temp_c = weather_data.get("temperature_2m")
+    feels_like_c = weather_data.get("apparent_temperature")
+    weather_code = weather_data.get("weather_code")
+    aqi = air_data.get("us_aqi")
+
+    return {
+        "location": location_name or "Current area",
+        "temperature_c": temp_c,
+        "feels_like_c": feels_like_c,
+        "weather_code": weather_code,
+        "weather_summary": _weather_summary(weather_code, temp_c),
+        "aqi": aqi,
+        "aqi_label": _aqi_label(aqi),
+        "lat": lat,
+        "lng": lng,
+    }
 
 
 @app.post("/api/auth/login")
@@ -178,6 +508,53 @@ def auth_login(payload: LoginPayload):
     response = JSONResponse(content={"ok": True, "redirect_to": "/", "profile": profile})
     _set_auth_cookie(response, profile)
     return response
+
+
+@app.post("/api/auth/google")
+def auth_google(payload: GoogleLoginPayload):
+    credential = (payload.credential or "").strip()
+    if not GOOGLE_CLIENT_ID:
+        return _error_response("Google sign-in is not configured.", status_code=503)
+    if not credential:
+        return _error_response("Missing Google credential.")
+
+    try:
+        response = requests.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": credential},
+            timeout=10,
+        )
+        response.raise_for_status()
+        token_data = response.json()
+    except Exception as exc:
+        log.warning("Google token verification failed: %s", exc)
+        return _error_response("Unable to verify Google sign-in.", status_code=401)
+
+    if token_data.get("aud") != GOOGLE_CLIENT_ID:
+        return _error_response("Google sign-in client mismatch.", status_code=401)
+    if token_data.get("email_verified") not in ("true", True):
+        return _error_response("Google account email is not verified.", status_code=401)
+
+    identifier = str(token_data.get("email") or "").strip()
+    if not identifier:
+        return _error_response("Google account email is unavailable.", status_code=401)
+
+    full_name = str(token_data.get("name") or "").strip()
+    first_name = str(token_data.get("given_name") or "").strip()
+    if not first_name:
+        first_name = full_name.split()[0] if full_name else identifier.split("@")[0].split(".")[0].split("_")[0].split("-")[0]
+    first_name = (first_name or "there").strip()
+    first_name = first_name[:1].upper() + first_name[1:]
+
+    profile = {
+        "identifier": identifier,
+        "firstName": first_name,
+        "fullName": full_name,
+    }
+
+    result = JSONResponse(content={"ok": True, "redirect_to": "/", "profile": profile})
+    _set_auth_cookie(result, profile)
+    return result
 
 
 @app.post("/api/auth/logout")
@@ -475,11 +852,32 @@ def food_history(
 
 
 @app.get("/api/food/suggestion")
-def food_suggestion():
+async def food_suggestion(
+    lat: float = Query(None),
+    lng: float = Query(None),
+):
     suggestion = food_suggestion_engine.get_suggestion()
+    suggestion = await _enrich_food_suggestion_with_live_data(suggestion, lat, lng)
     if not suggestion:
         return {"suggestion": None, "message": "No food suggestion right now."}
     return {"suggestion": suggestion}
+
+
+@app.get("/api/food/top-restaurants")
+async def food_top_restaurants(
+    lat: float = Query(None),
+    lng: float = Query(None),
+):
+    """Scrape top restaurants from Swiggy (opens Swiggy in background browser)."""
+    try:
+        result = await food_client.scrape_top_restaurants(lat=lat, lng=lng)
+        return result
+    except Exception as exc:
+        log.error("Failed to scrape top restaurants: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"restaurants": [], "error": str(exc)},
+        )
 
 
 @app.get("/api/food/patterns")
@@ -522,11 +920,18 @@ def food_dismiss(payload: FoodDismissPayload):
 # ── Suggestion Flow ──────────────────────────────────────────────────────────
 
 @app.get("/api/ride/suggestion")
-def get_suggestion(
+async def get_suggestion(
+    request: Request,
     lat: float = Query(None),
     lng: float = Query(None),
 ):
-    suggestion = suggestion_engine.get_suggestion(user_lat=lat, user_lng=lng)
+    profile = _auth_profile_from_request(request)
+    suggestion = suggestion_engine.get_suggestion(
+        user_lat=lat,
+        user_lng=lng,
+        user_identifier=profile["identifier"] if profile else None,
+    )
+    suggestion = await _enrich_ride_suggestion_with_live_data(suggestion, lat, lng)
     if not suggestion:
         return {"suggestion": None, "message": "No ride suggestion at this time."}
     return {"suggestion": suggestion}
@@ -566,16 +971,48 @@ def confirm_ride(payload: ConfirmPayload):
 class DismissPayload(BaseModel):
     route_key: str
     reason: Optional[str] = None
+    reason_code: Optional[str] = None
+    feedback_text: Optional[str] = None
+    pickup: Optional[str] = None
+    dropoff: Optional[str] = None
+    suggestion_payload: Optional[dict] = None
 
 
 @app.post("/api/ride/dismiss")
-def dismiss_ride(payload: DismissPayload):
+def dismiss_ride(payload: DismissPayload, request: Request):
+    profile = _auth_profile_from_request(request)
+    user_identifier = profile["identifier"] if profile else "anonymous"
+    reason = payload.reason or payload.reason_code
+
     db.log_interaction(
         "dismiss",
-        suggestion_payload={"reason": payload.reason},
+        suggestion_payload={
+            "reason": reason,
+            "reason_code": payload.reason_code,
+            "feedback_text": payload.feedback_text,
+            "pickup": payload.pickup,
+            "dropoff": payload.dropoff,
+        },
         route_key=payload.route_key,
     )
-    return {"dismissed": True}
+    memory = db.upsert_ride_feedback_memory(
+        user_identifier=user_identifier,
+        route_key=payload.route_key,
+        pickup_address=payload.pickup,
+        dropoff_address=payload.dropoff,
+        reason_code=payload.reason_code or payload.reason,
+        feedback_text=(payload.feedback_text or "").strip() or None,
+        suggestion_payload=payload.suggestion_payload,
+    )
+    return {"dismissed": True, "memory": memory}
+
+
+@app.get("/api/ride/feedback")
+def get_ride_feedback(route_key: str, request: Request):
+    profile = _auth_profile_from_request(request)
+    if not profile:
+        return {"memory": None}
+    return {"memory": db.get_ride_feedback_memory(profile["identifier"], route_key)}
 
 
 class EditPayload(BaseModel):

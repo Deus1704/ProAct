@@ -6,6 +6,7 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Assistant - Login</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&amp;display=swap"
@@ -174,30 +175,9 @@
                     class="relative bg-surface px-4 text-[10px] uppercase tracking-[0.2em] text-outline">Identification</span>
             </div>
             <div class="grid grid-cols-1 gap-4">
-                <button
-                    class="w-full flex items-center justify-between border border-outline-variant/30 py-4 px-6 hover:bg-surface-container-low transition-colors duration-300 group"
-                    type="button">
-                    <div class="flex items-center gap-4">
-                        <span
-                            class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors"
-                            data-icon="google">google</span>
-                        <span class="text-xs uppercase tracking-widest font-medium">Continue with Google</span>
-                    </div>
-                    <span class="material-symbols-outlined text-xs text-outline"
-                        data-icon="chevron_right">chevron_right</span>
-                </button>
-                <button
-                    class="w-full flex items-center justify-between border border-outline-variant/30 py-4 px-6 hover:bg-surface-container-low transition-colors duration-300 group"
-                    type="button">
-                    <div class="flex items-center gap-4">
-                        <span
-                            class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors"
-                            data-icon="apple">ios</span>
-                        <span class="text-xs uppercase tracking-widest font-medium">Continue with Apple</span>
-                    </div>
-                    <span class="material-symbols-outlined text-xs text-outline"
-                        data-icon="chevron_right">chevron_right</span>
-                </button>
+                <div class="hidden" id="googleSigninSection">
+                    <div class="w-full overflow-hidden border border-outline-variant/30 bg-surface-container-low/20 px-4 py-4" id="googleSigninContainer"></div>
+                </div>
             </div>
             <div class="pt-8">
                 <p class="text-[10px] text-outline leading-loose uppercase tracking-widest text-center md:text-left">
@@ -217,6 +197,8 @@
         const submitButton = document.getElementById("submitButton");
         const errorBox = document.getElementById("loginError");
         const errorMessage = errorBox ? errorBox.querySelector("p") : null;
+        const googleSigninSection = document.getElementById("googleSigninSection");
+        const googleSigninContainer = document.getElementById("googleSigninContainer");
 
         function showError(message) {
             if (!errorBox || !errorMessage) return;
@@ -230,6 +212,68 @@
             errorMessage.textContent = "";
             errorBox.classList.add("hidden");
             errorBox.classList.remove("flex");
+        }
+
+        async function handleGoogleCredentialResponse(googleResponse) {
+            hideError();
+
+            if (!googleResponse?.credential) {
+                showError("Google sign-in did not return a credential.");
+                return;
+            }
+
+            try {
+                const response = await fetch("/api/auth/google", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        credential: googleResponse.credential
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data?.ok) {
+                    throw new Error(data?.error || "Unable to continue with Google.");
+                }
+
+                window.location.assign(data.redirect_to || "/");
+            } catch (error) {
+                showError(error.message || "Unable to continue with Google.");
+            }
+        }
+
+        async function initGoogleSignin() {
+            if (!googleSigninSection || !googleSigninContainer) return;
+
+            try {
+                const response = await fetch("/api/auth/google/config");
+                const config = await response.json();
+                if (!config?.enabled || !config?.client_id || !window.google?.accounts?.id) {
+                    return;
+                }
+
+                google.accounts.id.initialize({
+                    client_id: config.client_id,
+                    callback: handleGoogleCredentialResponse,
+                    ux_mode: "popup",
+                    auto_select: false,
+                    cancel_on_tap_outside: true
+                });
+
+                google.accounts.id.renderButton(googleSigninContainer, {
+                    theme: "outline",
+                    size: "large",
+                    shape: "rectangular",
+                    text: "continue_with",
+                    width: "320"
+                });
+
+                googleSigninSection.classList.remove("hidden");
+            } catch (error) {
+                console.warn("Google sign-in initialization failed", error);
+            }
         }
 
         form?.addEventListener("submit", async (event) => {
@@ -272,6 +316,8 @@
                 submitButton.textContent = "Continue";
             }
         });
+
+        initGoogleSignin();
     </script>
 </body>
 
