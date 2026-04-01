@@ -137,6 +137,234 @@ def get_suggestion(
     return suggestion
 
 
+def choose_best_current_prediction(
+    candidates: list[dict],
+    *,
+    current_time: datetime | None = None,
+    user_lat: float | None = None,
+    user_lng: float | None = None,
+) -> dict | None:
+    """Pick the best current ride candidate using Groq, with deterministic fallback."""
+    if not candidates:
+        return None
+
+    now = current_time or datetime.now(IST)
+    rides = db.get_ride_history(limit=20, source_platform="uber")
+    if not GROQ_API_KEY:
+        return _fallback_pick_candidate(candidates)
+
+    candidate_summaries = []
+    for index, candidate in enumerate(candidates):
+        option = candidate.get("recommended_option") or {}
+        candidate_summaries.append(
+            {
+                "index": index,
+                "destination": candidate.get("destination_label"),
+                "departure_at": candidate.get("recommended_departure_time"),
+                "traffic_delta_minutes": candidate.get("traffic_delta_minutes"),
+                "price": option.get("price"),
+                "price_text": option.get("raw_price_text"),
+                "eta": option.get("eta"),
+                "ride_type": option.get("ride_type"),
+                "confidence": candidate.get("_candidate_score"),
+                "trigger_reasons": candidate.get("trigger_reasons", []),
+            }
+        )
+
+    recent_rides = [
+        {
+            "destination": ride.get("dest_label") or ride.get("dropoff_address"),
+            "departure_time": ride.get("departure_time") or ride.get("request_timestamp"),
+            "fare": ride.get("fare") if ride.get("fare") is not None else ride.get("price"),
+        }
+        for ride in rides[:12]
+    ]
+
+    location_context = None
+    if user_lat is not None and user_lng is not None:
+        location_context = {"lat": user_lat, "lng": user_lng}
+
+    prompt = f"""Pick the single best ride suggestion to show right now.
+
+Current time: {now.isoformat()}
+Current location: {json.dumps(location_context)}
+
+Candidate suggestions:
+{json.dumps(candidate_summaries, indent=2, default=str)}
+
+Recent verified Uber rides:
+{json.dumps(recent_rides, indent=2, default=str)}
+
+Rules:
+- Choose a candidate only if it is a believable next ride for right now.
+- Strongly prefer candidates whose departure time is close to now and whose destination appears repeatedly in recent history.
+- Reject weak or placeholder candidates.
+- Return JSON only.
+
+{{
+  "show_suggestion": true,
+  "selected_index": 0,
+  "explanation": "short factual explanation"
+}}
+
+Or:
+{{
+  "show_suggestion": false,
+  "explanation": "why none of the candidates fit right now"
+}}"""
+
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model=MODEL,
+            temperature=0.1,
+            max_tokens=220,
+            messages=[
+                {"role": "system", "content": "You rank ride suggestions. Reply with strict JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        text = (response.choices[0].message.content or "").strip()
+        parsed = _parse_json_response(text)
+        if not parsed.get("show_suggestion"):
+            return None
+        index = int(parsed.get("selected_index", -1))
+        if index < 0 or index >= len(candidates):
+            return _fallback_pick_candidate(candidates)
+        chosen = dict(candidates[index])
+        explanation = str(parsed.get("explanation") or "").strip()
+        if explanation:
+            chosen["reason_string"] = explanation
+        return chosen
+    except Exception as exc:
+        log.warning("Groq candidate ranking failed: %s", exc)
+        return _fallback_pick_candidate(candidates)
+
+
+def validate_prediction_with_llm(
+    prediction: dict,
+    current_time: datetime = None,
+) -> dict:
+    """Validate a prepared ride prediction with LLM before surfacing it in UI."""
+    if not prediction:
+        return {"valid": False, "score": 0.0, "reason": "empty_prediction"}
+
+    if not GROQ_API_KEY:
+        return {"valid": False, "score": 0.0, "reason": "missing_groq_api_key"}
+
+    now = current_time or datetime.now(IST)
+    routes = db.get_route_frequencies()
+    rides = db.get_ride_history(limit=12)
+
+    route_summaries = []
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    for r in routes[:12]:
+        route_summaries.append(
+            {
+                "pickup": r.get("pickup_address"),
+                "dropoff": r.get("dropoff_address"),
+                "day": day_names[r.get("weekday", 0)] if isinstance(r.get("weekday"), int) else None,
+                "avg_hour": r.get("avg_hour"),
+                "frequency": r.get("frequency"),
+            }
+        )
+
+    recent_rides = []
+    for r in rides[:8]:
+        recent_rides.append(
+            {
+                "pickup": r.get("pickup_address"),
+                "dropoff": r.get("dropoff_address"),
+                "request_timestamp": r.get("request_timestamp"),
+                "ride_type": r.get("ride_type"),
+            }
+        )
+
+    prompt = f"""Validate whether this ride recommendation should be shown to the user right now.
+
+CURRENT TIME (IST): {now.strftime('%A %I:%M %p')}
+
+PREDICTION TO VALIDATE:
+{json.dumps(prediction, default=str)}
+
+LEARNED ROUTE PATTERNS:
+{json.dumps(route_summaries, default=str)}
+
+RECENT RIDES:
+{json.dumps(recent_rides, default=str)}
+
+Rules:
+- Return valid=true only if prediction clearly aligns with user day/time behavior and route history.
+- If timing or destination seems weak/uncertain, return valid=false.
+- Keep explanation short, specific, and factual.
+
+Return JSON only:
+{{
+  "valid": true/false,
+  "score": 0.0,
+  "explanation": "short explanation"
+}}"""
+
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model=MODEL,
+            temperature=0.1,
+            max_tokens=180,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You validate commute prediction quality. Reply with strict JSON only.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+        text = (response.choices[0].message.content or "").strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        parsed = json.loads(text.strip())
+        score = float(parsed.get("score", 0.0) or 0.0)
+        valid = bool(parsed.get("valid")) and score >= 0.55
+        return {
+            "valid": valid,
+            "score": max(0.0, min(1.0, score)),
+            "explanation": str(parsed.get("explanation") or "").strip(),
+            "reason": "accepted" if valid else "rejected_by_llm",
+        }
+    except Exception as exc:
+        log.warning("Prediction validation failed: %s", exc)
+        return {"valid": False, "score": 0.0, "reason": "validation_error"}
+
+
+def _fallback_pick_candidate(candidates: list[dict]) -> dict | None:
+    if not candidates:
+        return None
+    ranked = sorted(candidates, key=lambda item: float(item.get("_candidate_score") or 0.0), reverse=True)
+    best = ranked[0]
+    if float(best.get("_candidate_score") or 0.0) < 0.35:
+        return None
+    return dict(best)
+
+
+def _parse_json_response(text: str) -> dict:
+    content = (text or "").strip()
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+    content = content.strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(content[start : end + 1])
+        raise
+
+
 def _ask_groq_for_suggestion(
     now: datetime,
     routes: list[dict],

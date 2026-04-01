@@ -3,12 +3,16 @@ const HEADERS = {"ngrok-skip-browser-warning": "true"};
 const API = {
   authStatus: () => get("/api/auth/status"),
   uiGreeting: () => get("/api/ui/greeting"),
-  liveContext: (lat, lng) => get(`/api/context/live?lat=${lat}&lng=${lng}`),
+  liveContext: (lat, lng) => {
+    if (!isValidLiveContextCoords(lat, lng)) {
+      return Promise.reject(new Error("Invalid live context coordinates"));
+    }
+    return get(`/api/context/live?lat=${lat}&lng=${lng}`);
+  },
   logout: () => post("/api/auth/logout"),
   suggestion: (lat, lng) => get(`/api/ride/suggestion${lat != null ? `?lat=${lat}&lng=${lng}` : ""}`),
   patterns: () => get("/api/ride/patterns"),
   history: (limit = 8, offset = 0) => get(`/api/uber/history?limit=${limit}&offset=${offset}`),
-  upcoming: () => get("/api/ride/upcoming"),
   uberStatus: () => get("/api/uber/status"),
   uberLogin: () => post("/api/uber/login"),
   uberScreenshot: () => get("/api/uber/screenshot"),
@@ -47,7 +51,6 @@ const state = {
   patterns: [],
   history: [],
   historyTotal: 0,
-  upcoming: [],
   uberStatus: null,
   foodStatus: null,
   foodHistory: [],
@@ -57,6 +60,8 @@ const state = {
   topRestaurants: [],
   topRestaurantsLoading: false,
   topRestaurantsError: null,
+  liveContextLoading: false,
+  liveContextRequest: null,
   userLat: null,
   userLng: null,
   userProfile: null,
@@ -115,7 +120,6 @@ async function startMainApp() {
       state.history = data?.rides || [];
       state.historyTotal = data?.total || state.history.length;
     }),
-    API.upcoming().then(data => { state.upcoming = data?.upcoming || []; }),
     API.foodPatterns().then(data => { state.foodPatterns = data?.top_patterns || []; }),
     API.foodHistory(10, 0).then(data => {
       state.foodHistory = data?.orders || [];
@@ -125,6 +129,8 @@ async function startMainApp() {
 
   // Render dashboard with non-location data first (cards show status & history)
   await nonLocationDataPromise;
+  state.liveContextLoading = true;
+  state.liveContextRequest = null;
   renderDashboard();
 
   // Then request GPS location and load GPS-dependent data in parallel
@@ -193,10 +199,85 @@ function updateBodyScrollLock() {
   const historyModal = document.getElementById("rideHistoryModal");
   const foodHistoryModal = document.getElementById("foodHistoryModal");
   const rideDismissModal = document.getElementById("rideDismissModal");
+  const profilePanel = document.getElementById("profilePanel");
   const historyOpen = Boolean(historyModal && !historyModal.classList.contains("hidden"));
   const foodHistoryOpen = Boolean(foodHistoryModal && !foodHistoryModal.classList.contains("hidden"));
   const rideDismissOpen = Boolean(rideDismissModal && !rideDismissModal.classList.contains("hidden"));
-  document.body.classList.toggle("no-scroll", historyOpen || foodHistoryOpen || rideDismissOpen);
+  const profilePanelOpen = Boolean(profilePanel && profilePanel.classList.contains("is-open"));
+  document.body.classList.toggle("no-scroll", historyOpen || foodHistoryOpen || rideDismissOpen || profilePanelOpen);
+}
+
+function renderProfilePanel() {
+  const nameEl = document.getElementById("profilePanelName");
+  const identifierEl = document.getElementById("profilePanelIdentifier");
+  const uberEl = document.getElementById("profileAccountUber");
+  const swiggyEl = document.getElementById("profileAccountSwiggy");
+  if (!nameEl || !identifierEl) return;
+
+  const displayName = state.userProfile?.fullName || state.userProfile?.firstName || "Assistant User";
+  const identifier = state.userProfile?.identifier || "Signed in session";
+  nameEl.textContent = displayName;
+  identifierEl.textContent = identifier;
+
+  updateProfileAccountBadge(uberEl, state.uberStatus == null ? null : Boolean(state.uberStatus.connected));
+  updateProfileAccountBadge(swiggyEl, state.foodStatus?.providers == null ? null : Boolean(state.foodStatus.providers.swiggy?.connected));
+}
+
+function updateProfileAccountBadge(element, connectedState) {
+  if (!element) return;
+  element.classList.remove("is-connected", "is-disconnected");
+
+  if (connectedState == null) {
+    element.textContent = "Checking";
+    return;
+  }
+
+  if (connectedState) {
+    element.textContent = "Connected";
+    element.classList.add("is-connected");
+    return;
+  }
+
+  element.textContent = "Offline";
+  element.classList.add("is-disconnected");
+}
+
+async function handleProfileLogout() {
+  const logoutBtn = document.getElementById("profileLogoutBtn");
+  if (logoutBtn) {
+    logoutBtn.disabled = true;
+    logoutBtn.textContent = "Logging Out";
+  }
+
+  try {
+    await API.logout();
+  } catch {
+    // Continue with logout redirect even if the request fails.
+  }
+
+  window.location.assign("/login");
+}
+
+function openProfilePanel() {
+  const panel = document.getElementById("profilePanel");
+  const overlay = document.getElementById("profilePanelOverlay");
+  if (!panel || !overlay) return;
+
+  renderProfilePanel();
+  panel.classList.add("is-open");
+  overlay.classList.add("is-open");
+  updateBodyScrollLock();
+}
+
+function closeProfilePanel() {
+  const panel = document.getElementById("profilePanel");
+  const overlay = document.getElementById("profilePanelOverlay");
+  if (!panel || !overlay) return;
+  if (!panel.classList.contains("is-open") && !overlay.classList.contains("is-open")) return;
+
+  panel.classList.remove("is-open");
+  overlay.classList.remove("is-open");
+  updateBodyScrollLock();
 }
 
 async function openRideHistoryModal() {
@@ -357,9 +438,9 @@ function renderRideHistoryModalTable(rides) {
   const rows = rides.map((ride) => {
     const date = formatDate(ride.request_timestamp);
     const source = (ride.source_platform || "uber").toUpperCase();
-    const from = shortAddress(ride.pickup_address || "Unknown pickup");
-    const to = shortAddress(ride.dropoff_address || "Unknown destination");
-    const rideType = ride.ride_type || "UberX";
+    const from = shortAddress(ride.pickup_address || "Not captured");
+    const to = shortAddress(ride.dropoff_address || "Not captured");
+    const rideType = ride.ride_type || "Not captured";
     const price = formatPrice(ride.price);
 
     return `
@@ -410,7 +491,7 @@ async function openFoodHistoryModal() {
     meta.textContent = `${orders.length} orders in total`;
     body.innerHTML = orders.length
       ? renderFoodHistoryModalTable(orders)
-      : `<p class="history-modal__empty">No food history found yet. Connect and sync Swiggy or Zomato first.</p>`;
+      : `<p class="history-modal__empty">No food history found yet. Connect and sync Swiggy first.</p>`;
   } catch {
     meta.textContent = "";
     body.innerHTML = `<p class="history-modal__empty">Could not load full history. Please try again.</p>`;
@@ -528,34 +609,46 @@ function capitalize(value) {
 }
 
 function bindRouting() {
-  document.querySelectorAll(".route-link").forEach((node) => {
-    const activate = () => {
-      const target = node.dataset.routeTarget || "/";
-      navigate(target);
-    };
+  if (bindRouting.bound) return;
+  bindRouting.bound = true;
 
-    node.addEventListener("click", (event) => {
-      event.preventDefault();
-      activate();
-    });
+  document.addEventListener("click", (event) => {
+    const node = event.target.closest(".route-link");
+    if (!node) return;
+    event.preventDefault();
+    const target = node.dataset.routeTarget || "/";
+    navigate(target);
+  });
 
-    if (node.getAttribute("role") === "button") {
-      node.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          activate();
-        }
-      });
-    }
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const node = event.target.closest(".route-link");
+    if (!node || node.getAttribute("role") !== "button") return;
+    event.preventDefault();
+    const target = node.dataset.routeTarget || "/";
+    navigate(target);
   });
 }
 
 function bindActions() {
-  const scheduleRide = document.getElementById("scheduleRide");
-  if (scheduleRide) {
-    scheduleRide.addEventListener("click", () => {
-      document.getElementById("ridePatternsSection")?.scrollIntoView({behavior: "smooth", block: "start"});
-    });
+  const profileButtons = Array.from(document.querySelectorAll('button[aria-label="Profile"]'));
+  profileButtons.forEach((button) => {
+    button.addEventListener("click", openProfilePanel);
+  });
+
+  const closeProfilePanelBtn = document.getElementById("closeProfilePanel");
+  if (closeProfilePanelBtn) {
+    closeProfilePanelBtn.addEventListener("click", closeProfilePanel);
+  }
+
+  const profilePanelOverlay = document.getElementById("profilePanelOverlay");
+  if (profilePanelOverlay) {
+    profilePanelOverlay.addEventListener("click", closeProfilePanel);
+  }
+
+  const profileLogoutBtn = document.getElementById("profileLogoutBtn");
+  if (profileLogoutBtn) {
+    profileLogoutBtn.addEventListener("click", handleProfileLogout);
   }
 
   const rideButtons = [document.getElementById("bookRideNow")];
@@ -617,14 +710,14 @@ function bindActions() {
     connectSwiggyBtn.addEventListener("click", () => startFoodLoginFlow("swiggy"));
   }
 
-  const connectZomatoBtn = document.getElementById("connectZomatoBtn");
-  if (connectZomatoBtn) {
-    connectZomatoBtn.addEventListener("click", () => startFoodLoginFlow("zomato"));
-  }
-
   const syncFoodBtn = document.getElementById("syncFoodHistoryBtn");
   if (syncFoodBtn) {
     syncFoodBtn.addEventListener("click", syncFoodHistory);
+  }
+
+  const liveContextRetryBtn = document.getElementById("liveContextRetry");
+  if (liveContextRetryBtn) {
+    liveContextRetryBtn.addEventListener("click", retryLiveContext);
   }
 
   const closeBrowserViewer = document.getElementById("closeBrowserViewer");
@@ -711,6 +804,7 @@ function bindActions() {
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      closeProfilePanel();
       closeRideHistoryModal();
       closeFoodHistoryModal();
       closeRideDismissModal();
@@ -760,50 +854,47 @@ function applyUiGreetingCopy() {
 }
 
 function requestLocationAndLoadGPSData() {
+  state.liveContextLoading = true;
+  state.liveContextRequest = null;
+  renderLiveContextPanel();
+
   if (!navigator.geolocation) {
-    // No geolocation support - load suggestions with null location (API may have cache/defaults)
     loadRideDataWithLocation(null, null);
+    fallbackToIpLocation();
     return;
   }
 
-  // Request GPS with aggressive timeout to not block UX
-  // Use enableHighAccuracy: true for best results, but will fall back if timeout
   navigator.geolocation.getCurrentPosition(
     (position) => {
-      // Successfully got GPS - update location and reload GPS-dependent data
       state.userLat = position.coords.latitude;
       state.userLng = position.coords.longitude;
       loadRideDataWithLocation(state.userLat, state.userLng);
+      fetchLiveContext(state.userLat, state.userLng);
     },
     (error) => {
-      // GPS failed or was denied - load with null location (API may have cache/defaults)
       console.warn("Geolocation error:", error.code, error.message);
       loadRideDataWithLocation(null, null);
+      fallbackToIpLocation();
     },
     {
       enableHighAccuracy: true,
-      timeout: 6000,      // Fast timeout - don't block UX waiting for high accuracy
-      maximumAge: 60000   // Use cached location if available
+      timeout: 8000,
+      maximumAge: 60000
     }
   );
 }
 
 async function loadRideDataWithLocation(lat, lng) {
-  // Load GPS-dependent data (suggestions, live context, restaurants)
-  // These will update the dashboard when ready
   const gpsDataResults = await Promise.allSettled([
     API.suggestion(lat, lng),
     API.foodSuggestion(lat, lng),
-    API.liveContext(lat, lng),
     API.foodTopRestaurants(lat, lng),
   ]);
 
-  // Update state with GPS-dependent results
-  state.suggestion = readFulfilled(gpsDataResults[0])?.suggestion || null;
-  state.foodSuggestion = readFulfilled(gpsDataResults[1])?.suggestion || null;
-  state.liveContext = readFulfilled(gpsDataResults[2]) || null;
+  state.suggestion = normalizeRideSuggestion(readFulfilled(gpsDataResults[0])?.suggestion || null);
+  state.foodSuggestion = normalizeFoodSuggestion(readFulfilled(gpsDataResults[1])?.suggestion || null);
   
-  const restaurantsData = readFulfilled(gpsDataResults[3]);
+  const restaurantsData = readFulfilled(gpsDataResults[2]);
   if (restaurantsData?.error) {
     state.topRestaurantsError = restaurantsData.error;
     state.topRestaurants = [];
@@ -812,30 +903,74 @@ async function loadRideDataWithLocation(lat, lng) {
   }
   state.topRestaurantsLoading = false;
 
-  // Re-render dashboard with updated GPS data
-  // Only re-render specific sections that depend on location to minimize flicker
   renderHomeSummary();
   renderRidePage();
   renderFoodPage();
 }
 
-async function loadLiveContext() {
-  if (state.userLat == null || state.userLng == null) return;
+async function fetchLiveContext(lat, lng) {
+  if (!isValidLiveContextCoords(lat, lng)) {
+    state.liveContextLoading = false;
+    state.liveContext = null;
+    renderLiveContextPanel();
+    return;
+  }
+
+  state.liveContextLoading = true;
+  state.liveContextRequest = {lat, lng};
+  renderLiveContextPanel();
+
   try {
-    const data = await API.liveContext(state.userLat, state.userLng);
+    const data = await API.liveContext(lat, lng);
     state.liveContext = data || null;
   } catch {
     state.liveContext = null;
+  } finally {
+    state.liveContextLoading = false;
+    renderLiveContextPanel();
   }
+}
+
+async function fallbackToIpLocation() {
+  try {
+    const response = await fetch("https://ipapi.co/json/");
+    if (!response.ok) throw new Error(`IP lookup failed with HTTP ${response.status}`);
+    const data = await response.json();
+    const lat = toFiniteNumber(data?.latitude);
+    const lng = toFiniteNumber(data?.longitude);
+    if (isValidLiveContextCoords(lat, lng)) {
+      await fetchLiveContext(lat, lng);
+      return;
+    }
+  } catch (error) {
+    console.warn("IP geolocation fallback failed:", error);
+  }
+
+  state.liveContextLoading = false;
+  state.liveContext = null;
+  renderLiveContextPanel();
+}
+
+async function retryLiveContext() {
+  const coords = state.liveContextRequest;
+  if (coords && isValidLiveContextCoords(coords.lat, coords.lng)) {
+    await fetchLiveContext(coords.lat, coords.lng);
+    return;
+  }
+  requestLocationAndLoadGPSData();
 }
 
 async function loadRideData() {
   const results = await Promise.allSettled([
     API.suggestion(state.userLat, state.userLng),
+    API.patterns(),
+    API.history(8, 0),
   ]);
 
-  state.suggestion = readFulfilled(results[0])?.suggestion || null;
-  // patterns, history already loaded in startMainApp
+  state.suggestion = normalizeRideSuggestion(readFulfilled(results[0])?.suggestion || null);
+  state.patterns = readFulfilled(results[1])?.top_patterns || [];
+  state.history = readFulfilled(results[2])?.rides || [];
+  state.historyTotal = readFulfilled(results[2])?.total || state.history.length;
 }
 
 async function loadFoodData() {
@@ -845,7 +980,7 @@ async function loadFoodData() {
     API.foodHistory(10, 0),
   ]);
 
-  state.foodSuggestion = readFulfilled(results[0])?.suggestion || null;
+  state.foodSuggestion = normalizeFoodSuggestion(readFulfilled(results[0])?.suggestion || null);
   state.foodPatterns = readFulfilled(results[1])?.top_patterns || [];
   state.foodHistory = readFulfilled(results[2])?.orders || [];
   state.foodHistoryTotal = readFulfilled(results[2])?.total || state.foodHistory.length;
@@ -890,6 +1025,7 @@ async function loadFoodStatus() {
 
 function renderDashboard() {
   renderHomeSummary();
+  renderLiveContextPanel();
   renderRidePage();
   renderFoodPage();
   renderUberStatus();
@@ -905,26 +1041,25 @@ function renderHomeSummary() {
   const homeRideMetaLabel = document.getElementById("homeRideMetaLabel");
   const homeRideMetaValue = document.getElementById("homeRideMetaValue");
   const activityList = document.getElementById("homeActivityList");
-  const contextLocation = document.getElementById("contextLocation");
-  const contextHeadline = document.getElementById("contextHeadline");
-  const contextTemperature = document.getElementById("contextTemperature");
-  const contextAqi = document.getElementById("contextAqi");
-  const contextCoords = document.getElementById("contextCoords");
-  const contextPulse = document.getElementById("contextPulse");
 
   if (state.suggestion) {
     const activeRide = getActiveRideContext();
-    const pickupDisplay = activeRide.pickupName === "Current location" && state.liveContext?.location
-      ? state.liveContext.location
-      : activeRide.pickupName;
-    chip.textContent = `${shortAddress(activeRide.dropoffName || "Home").toUpperCase()} IN ${Math.round(state.suggestion.eta_minutes || 12)}M`;
-    logisticsTitle.textContent = `ETA ${shortAddress(activeRide.dropoffName || "Home")}: ${formatClock(state.suggestion.suggested_departure)}`;
-    logisticsText.textContent = state.suggestion.explanation || "Optimal route ready to confirm.";
+    const pickupDisplay = activeRide.pickupName;
+    chip.textContent = `${shortAddress(activeRide.dropoffName || "Home").toUpperCase()} ${formatCountdown(activeRide.minutesUntilDeparture)}`;
+    logisticsTitle.textContent = `Next ride to ${shortAddress(activeRide.dropoffName || "Home")}: ${formatClock(activeRide.departureAt)}`;
+    logisticsText.textContent = activeRide.explanation || "Next likely ride based on your actual history.";
     if (homeRidePickupValue) homeRidePickupValue.textContent = pickupDisplay || "Current location";
-    if (homeRideDropoffValue) homeRideDropoffValue.textContent = activeRide.dropoffName || state.suggestion.dropoff || "Suggested destination";
-    if (homeRideMetaLabel) homeRideMetaLabel.textContent = "Departure";
-    if (homeRideMetaValue) homeRideMetaValue.textContent = formatClock(state.suggestion.suggested_departure) || "Ready now";
-    contextLocation.textContent = shortAddress(state.suggestion.dropoff || "City Center");
+    if (homeRideDropoffValue) homeRideDropoffValue.textContent = activeRide.dropoffName || "Suggested destination";
+    if (homeRideMetaLabel) homeRideMetaLabel.textContent = activeRide.minutesUntilDeparture > 120 ? "Predicted departure" : "Leaving in";
+    if (homeRideMetaValue) homeRideMetaValue.textContent = activeRide.minutesUntilDeparture > 120 ? formatDetailedDeparture(activeRide.departureAt) : formatCountdown(activeRide.minutesUntilDeparture);
+  } else if (state.uberStatus?.connected) {
+    chip.textContent = "AWAITING VALIDATION";
+    logisticsTitle.textContent = "No validated ride prediction yet";
+    logisticsText.textContent = "Your logistics card updates only after prediction and LLM validation complete.";
+    if (homeRidePickupValue) homeRidePickupValue.textContent = "Current location";
+    if (homeRideDropoffValue) homeRideDropoffValue.textContent = "Pending validation";
+    if (homeRideMetaLabel) homeRideMetaLabel.textContent = "Status";
+    if (homeRideMetaValue) homeRideMetaValue.textContent = "Monitoring patterns";
   }
 
   if (!activityList) return;
@@ -956,36 +1091,6 @@ function renderHomeSummary() {
 
   activityList.innerHTML = latestActivity;
 
-  if (state.liveContext) {
-    if (contextLocation) contextLocation.textContent = state.liveContext.location || "Current area";
-    if (contextHeadline) contextHeadline.textContent = state.liveContext.weather_summary || "Ambient conditions are steady.";
-    if (contextTemperature) {
-      const temp = toFiniteNumber(state.liveContext.temperature_c);
-      const feels = toFiniteNumber(state.liveContext.feels_like_c);
-      contextTemperature.textContent = temp == null
-        ? "Unavailable"
-        : `${Math.round(temp)}C${feels == null ? "" : ` · feels like ${Math.round(feels)}C`}`;
-    }
-    if (contextAqi) {
-      const aqi = toFiniteNumber(state.liveContext.aqi);
-      contextAqi.textContent = aqi == null
-        ? "Unavailable"
-        : `${Math.round(aqi)} US AQI · ${state.liveContext.aqi_label || "Unknown"}`;
-    }
-    if (contextCoords) {
-      contextCoords.textContent = `${Number(state.liveContext.lat).toFixed(3)}, ${Number(state.liveContext.lng).toFixed(3)}`;
-    }
-    if (contextPulse) {
-      contextPulse.textContent = (toFiniteNumber(state.liveContext.aqi) ?? 0) > 100 ? "Air quality elevated" : "Live context synced";
-    }
-  } else {
-    if (contextHeadline) contextHeadline.textContent = "Ambient conditions are steady.";
-    if (contextTemperature) contextTemperature.textContent = "Waiting for GPS";
-    if (contextAqi) contextAqi.textContent = "Waiting for GPS";
-    if (contextCoords) contextCoords.textContent = "Waiting for GPS";
-    if (contextPulse) contextPulse.textContent = "System steady";
-  }
-
   // Conditionally render connect buttons on homepage cards if accounts not connected
   const homeRideActions = document.getElementById("homeRideActions");
   const homeRideContent = document.getElementById("homeRideContent");
@@ -1009,18 +1114,26 @@ function renderHomeSummary() {
       } else {
         if (homeRideContent) homeRideContent.classList.remove("hidden");
         if (homeRideDisconnected) homeRideDisconnected.classList.add("hidden");
-        
-        homeRideActions.innerHTML = `
-          <button class="panel-cta--cyan bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="confirm" type="button">
-            Confirm Ride
-          </button>
-          <button class="secondary-cta px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] transition-colors hover:bg-surface-container-high" data-home-ride-action="dismiss" type="button">
-            Dismiss Suggestion
-          </button>
-          <button class="secondary-cta px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] transition-colors hover:bg-surface-container-high" data-home-ride-action="explore" type="button">
-            Explore More
-          </button>
-        `;
+
+        if (state.suggestion) {
+          homeRideActions.innerHTML = `
+            <button class="panel-cta--cyan bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="confirm" type="button">
+              Confirm Ride
+            </button>
+            <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="dismiss" type="button">
+              Dismiss Suggestion
+            </button>
+            <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="explore" type="button">
+              Explore More
+            </button>
+          `;
+        } else {
+          homeRideActions.innerHTML = `
+            <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="explore" type="button">
+              Explore More
+            </button>
+          `;
+        }
       }
     } else {
       if (homeRideLoading) homeRideLoading.classList.remove("hidden");
@@ -1034,14 +1147,18 @@ function renderHomeSummary() {
   const homeFoodContent = document.getElementById("homeFoodContent");
   const homeFoodDisconnected = document.getElementById("homeFoodDisconnected");
   const homeFoodLoading = document.getElementById("homeFoodLoading");
+  const homeFoodTitle = document.getElementById("homeFoodTitle");
+  const homeFoodText = document.getElementById("homeFoodText");
+  const homeFoodRecommendation = document.getElementById("homeFoodRecommendation");
+  const homeFoodTiming = document.getElementById("homeFoodTiming");
+  const homeFoodProviders = document.getElementById("homeFoodProviders");
 
   if (homeFoodActions) {
     if (state.foodStatus) {
       if (homeFoodLoading) homeFoodLoading.classList.add("hidden");
       homeFoodActions.classList.remove("hidden");
       
-      // If we have status and neither Swiggy nor Zomato are connected
-      if (!state.foodStatus.providers?.swiggy?.connected && !state.foodStatus.providers?.zomato?.connected) {
+      if (!state.foodStatus.providers?.swiggy?.connected) {
         if (homeFoodContent) homeFoodContent.classList.add("hidden");
         if (homeFoodDisconnected) homeFoodDisconnected.classList.remove("hidden");
         
@@ -1053,6 +1170,13 @@ function renderHomeSummary() {
       } else {
         if (homeFoodContent) homeFoodContent.classList.remove("hidden");
         if (homeFoodDisconnected) homeFoodDisconnected.classList.add("hidden");
+
+        const homeFoodContext = getHomeFoodContext();
+        if (homeFoodTitle) homeFoodTitle.textContent = homeFoodContext.title;
+        if (homeFoodText) homeFoodText.textContent = homeFoodContext.summary;
+        if (homeFoodRecommendation) homeFoodRecommendation.textContent = homeFoodContext.recommendation;
+        if (homeFoodTiming) homeFoodTiming.textContent = homeFoodContext.timing;
+        if (homeFoodProviders) homeFoodProviders.textContent = homeFoodContext.provider;
         
         homeFoodActions.innerHTML = `
           <button class="panel-cta--amber route-link bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-route-target="/food" type="button">
@@ -1075,11 +1199,68 @@ function renderHomeSummary() {
   }
 }
 
+function renderLiveContextPanel() {
+  const loadingEl = document.getElementById("liveContextLoading");
+  const unavailableEl = document.getElementById("liveContextUnavailable");
+  const contentEl = document.getElementById("liveContextContent");
+  const headlineEl = document.getElementById("contextHeadline");
+  const locationEl = document.getElementById("contextLocation");
+  const tempEl = document.getElementById("contextTemperature");
+  const aqiEl = document.getElementById("contextAqi");
+  const windEl = document.getElementById("contextCoords");
+  const pulseEl = document.getElementById("contextPulse");
+
+  if (!loadingEl || !unavailableEl || !contentEl) return;
+
+  const ctx = state.liveContext || {};
+  const hasData = Boolean(
+    ctx.position != null ||
+    ctx.temperature != null ||
+    ctx.conditions != null ||
+    ctx.air_quality != null ||
+    ctx.aqi_value != null ||
+    ctx.wind_speed != null
+  );
+
+  loadingEl.classList.toggle("hidden", !state.liveContextLoading);
+  unavailableEl.classList.toggle("hidden", state.liveContextLoading || hasData);
+  contentEl.classList.toggle("hidden", state.liveContextLoading || !hasData);
+
+  if (state.liveContextLoading) {
+    return;
+  }
+
+  if (!hasData) {
+    if (headlineEl) headlineEl.textContent = "Live context unavailable";
+    if (locationEl) locationEl.textContent = "Unavailable";
+    if (tempEl) tempEl.textContent = "—";
+    if (aqiEl) aqiEl.textContent = "—";
+    if (windEl) windEl.textContent = "—";
+    if (pulseEl) pulseEl.textContent = "Retry available";
+    return;
+  }
+
+  const conditions = typeof ctx.conditions === "string" && ctx.conditions.trim()
+    ? ctx.conditions.trim()
+    : "Conditions unavailable";
+  if (headlineEl) headlineEl.textContent = conditions.endsWith(".") ? conditions : `${conditions}.`;
+  if (locationEl) locationEl.textContent = ctx.position || "Unavailable";
+  if (tempEl) tempEl.textContent = ctx.temperature || "—";
+  if (aqiEl) {
+    aqiEl.textContent = ctx.air_quality || "—";
+  }
+  if (windEl) windEl.textContent = ctx.wind_speed || "—";
+  if (pulseEl) {
+    pulseEl.textContent = ctx.sources && Object.values(ctx.sources).every(Boolean)
+      ? "Live context synced"
+      : "Cached fallback used";
+  }
+}
+
 function renderRidePage() {
   const heroText = document.getElementById("ridesHeroText");
   const etaLabel = document.getElementById("rideEtaLabel");
   const rideHistoryList = document.getElementById("rideHistoryList");
-  const ridePatternCards = document.getElementById("ridePatternCards");
   const destinationLabel = document.getElementById("dest-label");
   const trafficStatus = document.getElementById("traffic-status");
   const pickupLabel = document.getElementById("ridePickupLabel");
@@ -1090,11 +1271,10 @@ function renderRidePage() {
 
   if (activeRide.hasSuggestion) {
     const destination = shortAddress(activeRide.dropoffName);
-    const eta = Math.max(1, Math.round(activeRide.etaMinutes || 12));
-    const trafficTone = describeTrafficTone(activeRide.trafficDeltaMinutes, eta);
-    const livePrice = state.suggestion?.estimated_price || null;
-    heroText.textContent = `Heading to ${destination}? ${trafficTone}, ${eta} mins to arrival.`;
-    etaLabel.textContent = `${eta} MINS`;
+    const trafficTone = describeTrafficTone(activeRide.trafficDeltaMinutes, activeRide.travelEtaMinutes);
+    const livePrice = activeRide.estimatedPrice || null;
+    heroText.textContent = `Next likely ride to ${destination} leaves ${formatDetailedDeparture(activeRide.departureAt)}.`;
+    etaLabel.textContent = formatCompactCountdown(activeRide.minutesUntilDeparture);
     if (destinationLabel) destinationLabel.textContent = activeRide.dropoffName;
     if (trafficStatus) {
       trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">warning</span>${escapeHtml(trafficTone)}`;
@@ -1103,32 +1283,34 @@ function renderRidePage() {
     if (dropoffLabel) dropoffLabel.textContent = activeRide.dropoffName;
     if (recommendationTitle) recommendationTitle.textContent = activeRide.rideType || "Book your next ride";
     if (recommendationMeta) {
-      recommendationMeta.textContent = activeRide.explanation || `${eta} min route from ${shortAddress(activeRide.pickupName)} to ${shortAddress(activeRide.dropoffName)}.`;
+      recommendationMeta.textContent = activeRide.explanation || `Predicted departure from ${shortAddress(activeRide.pickupName)} to ${shortAddress(activeRide.dropoffName)}.`;
       if (livePrice) {
         recommendationMeta.textContent = `${recommendationMeta.textContent} Live fare: ${livePrice}.`;
       }
     }
   } else {
-    heroText.textContent = "Heading somewhere familiar? Your ride suggestion will appear here once enough route history is available.";
-    etaLabel.textContent = "12 MINS";
-    if (destinationLabel) destinationLabel.textContent = "Recommended route";
+    const waitingOnValidation = Boolean(state.uberStatus?.connected);
+    heroText.textContent = waitingOnValidation
+      ? "Connected to Uber. Waiting for a verified live Uber quote with car type, fare, and ETA."
+      : "Connect Uber and sync ride history to generate personalized predictions.";
+    etaLabel.textContent = "--";
+    if (destinationLabel) destinationLabel.textContent = waitingOnValidation ? "Awaiting live Uber quote" : "Connect Uber";
     if (trafficStatus) {
-      trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">warning</span>Heavy Traffic`;
+      trafficStatus.innerHTML = `<span class="material-symbols-outlined text-sm">info</span>${waitingOnValidation ? "Live quote not ready yet" : "Account not connected"}`;
     }
     if (pickupLabel) pickupLabel.textContent = "Current location";
-    if (dropoffLabel) dropoffLabel.textContent = "Suggested destination";
-    if (recommendationTitle) recommendationTitle.textContent = "Book your next ride";
-    if (recommendationMeta) recommendationMeta.textContent = "Departure optimized with live traffic context.";
+    if (dropoffLabel) dropoffLabel.textContent = waitingOnValidation ? "Pending live quote" : "Connect and sync history";
+    if (recommendationTitle) recommendationTitle.textContent = waitingOnValidation ? "Fetching live Uber option" : "Ride prediction unavailable";
+    if (recommendationMeta) {
+      recommendationMeta.textContent = waitingOnValidation
+        ? "This screen only shows suggestions after Uber returns a real car type, fare, and ETA for the current route."
+        : "Connect your Uber account to start prediction and validation.";
+    }
   }
 
   if (rideHistoryList) {
     const rides = state.history.slice(0, 3);
     rideHistoryList.innerHTML = rides.length ? rides.map(renderRideHistoryRow).join("") : fallbackRideHistory();
-  }
-
-  if (ridePatternCards) {
-    const cards = (state.upcoming.length ? state.upcoming : state.patterns).slice(0, 3);
-    ridePatternCards.innerHTML = cards.length ? cards.map(renderPatternCard).join("") : fallbackPatternCards();
   }
 
   if (isRideScreenVisible()) {
@@ -1187,7 +1369,7 @@ function renderFoodPage() {
     } else if (topPick) {
       hero.textContent = `Hungry? ${topPick.name} is trending near you right now.`;
     } else {
-      hero.textContent = "Hungry? Connect Swiggy or Zomato to personalize your next meal.";
+      hero.textContent = "Hungry? Connect Swiggy to personalize your next meal.";
     }
   }
 
@@ -1329,10 +1511,9 @@ function renderFoodStatus() {
   const statusText = document.getElementById("foodConnectionStatusText");
   const syncText = document.getElementById("foodSyncStatusText");
   const connectSwiggyBtn = document.getElementById("connectSwiggyBtn");
-  const connectZomatoBtn = document.getElementById("connectZomatoBtn");
   const syncBtn = document.getElementById("syncFoodHistoryBtn");
 
-  if (!providerTag || !statusText || !syncText || !connectSwiggyBtn || !connectZomatoBtn || !syncBtn) return;
+  if (!providerTag || !statusText || !syncText || !connectSwiggyBtn || !syncBtn) return;
 
   if (!state.foodStatus?.providers) {
     providerTag.textContent = "Checking status";
@@ -1342,33 +1523,19 @@ function renderFoodStatus() {
   }
 
   const swiggy = state.foodStatus.providers.swiggy;
-  const zomato = state.foodStatus.providers.zomato;
-  const connectedLabels = [
-    swiggy?.connected ? "Swiggy" : null,
-    zomato?.connected ? "Zomato" : null,
-  ].filter(Boolean);
-
-  const syncLines = [
-    swiggy?.history_synced ? `Swiggy synced${swiggy.last_sync_time ? ` • ${formatDate(swiggy.last_sync_time)}` : ""}` : "Swiggy not synced",
-    zomato?.history_synced ? `Zomato synced${zomato.last_sync_time ? ` • ${formatDate(zomato.last_sync_time)}` : ""}` : "Zomato not synced",
-  ];
-
-  providerTag.textContent = connectedLabels.length ? connectedLabels.join(" + ") : "Not Connected";
-  statusText.textContent = connectedLabels.length
-    ? `Connected: ${connectedLabels.join(" and ")}`
-    : "No food providers connected";
-  syncText.textContent = syncLines.join(" | ");
+  providerTag.textContent = swiggy?.connected ? "Swiggy" : "Not Connected";
+  statusText.textContent = swiggy?.connected ? "Connected: Swiggy" : "Swiggy not connected";
+  syncText.textContent = swiggy?.history_synced
+    ? `Swiggy synced${swiggy.last_sync_time ? ` • ${formatDate(swiggy.last_sync_time)}` : ""}`
+    : "Sync to load real Swiggy order history";
 
   const loginActive = browserState.active && browserState.mode === "food";
   connectSwiggyBtn.disabled = loginActive;
-  connectZomatoBtn.disabled = loginActive;
   connectSwiggyBtn.textContent = loginActive && browserState.provider === "swiggy"
     ? "Login In Progress"
     : (swiggy?.connected ? "Reconnect Swiggy" : "Connect Swiggy");
-  connectZomatoBtn.textContent = loginActive && browserState.provider === "zomato"
-    ? "Login In Progress"
-    : (zomato?.connected ? "Reconnect Zomato" : "Connect Zomato");
-  syncBtn.disabled = !state.foodStatus.any_connected;
+  syncBtn.disabled = !swiggy?.connected;
+  renderProfilePanel();
 }
 
 function renderUberStatus() {
@@ -1401,6 +1568,7 @@ function renderUberStatus() {
   connectBtn.disabled = browserState.active;
   connectBtn.textContent = browserState.active ? "Login In Progress" : connected ? "Reconnect Uber Account" : "Connect Uber Account";
   syncBtn.disabled = !connected;
+  renderProfilePanel();
 }
 
 async function startUberLoginFlow() {
@@ -1430,36 +1598,6 @@ async function startFoodLoginFlow(provider) {
 
   try {
     const data = await API.foodLogin(provider);
-
-    if (data.requires_cookie) {
-      const cookie = prompt("Zomato requires a session cookie for login.\n\nPlease open Zomato in your browser, open Developer Tools -> Application -> Cookies, and copy the entire Cookie string.\n\nPaste it below:");
-      if (!cookie) {
-        showToast("Login cancelled. A cookie is required for Zomato.");
-        return;
-      }
-      
-      const connectBtn = document.getElementById(provider === 'zomato' ? "connectZomatoBtn" : "connectSwiggyBtn");
-      if (connectBtn) {
-        connectBtn.disabled = true;
-        connectBtn.textContent = "Connecting...";
-      }
-
-      try {
-        const result = await post(`/api/food/login/${provider}/cookie`, { cookie: cookie });
-        if (result.status === "logged_in") {
-          sessionStorage.setItem("syncNotification", `${providerLabel(provider)} account connected. Food history sync is now in progress.`);
-          sessionStorage.setItem("autoSyncProvider", `food_${provider}`);
-          window.location.reload();
-          return;
-        } else {
-          showToast(result.message || `Failed to connect ${providerLabel(provider)} with the provided cookie.`);
-        }
-      } catch {
-        showToast(`Error connecting to ${providerLabel(provider)} API.`);
-      }
-      await loadFoodStatus();
-      return;
-    }
 
     if ((data.status === "login_started" || data.status === "in_progress" || data.status === "logged_in") && data.screenshot) {
       showToast(`${providerLabel(provider)} login opened. Complete authentication in the live viewer.`);
@@ -1689,7 +1827,7 @@ async function syncFoodHistory() {
 }
 
 function renderRideHistoryRow(ride) {
-  const title = escapeHtml(shortAddress(ride.dropoff_address));
+  const title = escapeHtml(shortAddress(ride.dest_label || ride.dropoff_address || "Destination"));
   const meta = escapeHtml(formatHistoryMeta(ride));
   return `
     <article class="history-row">
@@ -1699,31 +1837,8 @@ function renderRideHistoryRow(ride) {
         <p>${meta}</p>
       </div>
       <div class="history-row__meta">
-        <strong>${formatPrice(ride.price)}</strong>
+        <strong>${formatPrice(ride.fare ?? ride.price)}</strong>
         <span>›</span>
-      </div>
-    </article>
-  `;
-}
-
-function renderPatternCard(pattern, index) {
-  const variants = ["cyan", "amber", "violet"];
-  const variant = variants[index % variants.length];
-  const icon = variant === "amber" ? gymIcon() : variant === "violet" ? homeIcon() : briefcaseIcon();
-  const title = escapeHtml(shortAddress(pattern.dropoff || "Home Sweet Home"));
-  const frequency = escapeHtml(pattern.frequency ? `${pattern.frequency}X THIS WEEK` : `${pattern.day || "DAILY"}`);
-  const time = escapeHtml(pattern.expected_time || pattern.avg_time || "08:45 AM");
-  const footer = index === 0 ? "Book Fast" : index === 1 ? "Routine Set" : "One-Tap Go";
-
-  return `
-    <article class="pattern-card pattern-card--${variant}">
-      <div class="pattern-card__icon">${icon}</div>
-      <span class="pattern-card__tag">${frequency}</span>
-      <h3>${title}</h3>
-      <p>Typical start: ${time}</p>
-      <div class="pattern-card__footer">
-        <span class="pattern-bar"></span>
-        <strong>${footer}</strong>
       </div>
     </article>
   `;
@@ -1732,11 +1847,22 @@ function renderPatternCard(pattern, index) {
 function renderFoodOrder(order, index) {
   const icons = [cutleryIcon(), pizzaIcon(), burgerIcon()];
   const accentClass = index === 0 ? " order-row__icon--amber" : "";
-  const title = order.item_name || "Order item";
+  let parsedItems = [];
+  if (Array.isArray(order.items_json)) {
+    parsedItems = order.items_json;
+  } else if (typeof order.items_json === "string") {
+    try {
+      parsedItems = JSON.parse(order.items_json);
+    } catch {
+      parsedItems = [];
+    }
+  }
+  const firstItem = Array.isArray(parsedItems) ? parsedItems[0]?.name : null;
+  const title = firstItem || order.item_name || "Order item";
   const restaurant = order.restaurant_name || "Restaurant";
-  const source = providerLabel(order.source_platform || "swiggy").toUpperCase();
-  const sourceId = (order.source_platform || "swiggy").toLowerCase();
-  const price = formatPrice(order.price);
+  const source = providerLabel(order.platform || order.source_platform || "swiggy").toUpperCase();
+  const sourceId = (order.platform || order.source_platform || "swiggy").toLowerCase();
+  const price = formatPrice(order.total_price ?? order.price);
   return `
     <article class="order-row">
       <div class="order-row__icon${accentClass}">
@@ -1747,7 +1873,7 @@ function renderFoodOrder(order, index) {
           ${escapeHtml(title)}
           <span class="provider-tag provider-tag--${sourceId}">${escapeHtml(source)}</span>
         </h3>
-        <p>${escapeHtml(`${restaurant} • ${formatDate(order.order_timestamp)} • ${price}`)}</p>
+        <p>${escapeHtml(`${restaurant} • ${formatDate(order.ordered_at || order.order_timestamp)} • ${price}`)}</p>
       </div>
       <button class="reorder-button" type="button">REORDER</button>
     </article>
@@ -1793,14 +1919,6 @@ function fallbackRideHistory() {
   `;
 }
 
-function fallbackPatternCards() {
-  return [
-    {dropoff: "Tech Hub HQ", expected_time: "08:45 AM", frequency: 4},
-    {dropoff: "Iron Paradise Gym", expected_time: "06:15 PM", frequency: 3},
-    {dropoff: "Home Sweet Home", expected_time: "Daily", frequency: 1},
-  ].map(renderPatternCard).join("");
-}
-
 function fallbackCravingCards() {
   return `
     <article class="craving-card">
@@ -1823,7 +1941,7 @@ function fallbackFoodOrders() {
       </div>
       <div class="order-row__copy">
         <h3>No synced food orders yet</h3>
-        <p>Connect Swiggy or Zomato and sync to load your order history.</p>
+        <p>Connect Swiggy and sync to load your order history.</p>
       </div>
       <button class="reorder-button" type="button" disabled>REORDER</button>
     </article>
@@ -1833,7 +1951,6 @@ function fallbackFoodOrders() {
 function providerLabel(provider) {
   const p = String(provider || "").toLowerCase();
   if (p === "swiggy") return "Swiggy";
-  if (p === "zomato") return "Zomato";
   if (p === "uber") return "Uber";
   return p ? `${p.charAt(0).toUpperCase()}${p.slice(1)}` : "Provider";
 }
@@ -1977,7 +2094,7 @@ function refitRideMap() {
 const geocodeCache = {};
 
 async function geocodeAddress(address) {
-  if (!address || address === "Current location" || address === "Suggested destination" || address === "Unknown pickup") {
+  if (!address || address === "Current location" || address === "Suggested destination" || address === "Unknown pickup" || address === "Not captured") {
     return null;
   }
 
@@ -2015,55 +2132,55 @@ function getActiveRideContext() {
   const history = Array.isArray(state.history) ? state.history : [];
   const primaryHistory = history.find((ride) => {
     if (!ride) return false;
-    if (suggestion.dropoff && ride.dropoff_address) {
-      return String(ride.dropoff_address).trim().toLowerCase() === String(suggestion.dropoff).trim().toLowerCase();
+    const rideDestination = ride.dest_label || ride.dropoff_address;
+    if (suggestion.destinationLabel && rideDestination) {
+      return String(rideDestination).trim().toLowerCase() === String(suggestion.destinationLabel).trim().toLowerCase();
     }
-    return Boolean(ride.dropoff_address);
+    return Boolean(rideDestination);
   }) || history[0] || null;
 
   const pickupName = firstNonEmpty(
-    suggestion.pickup,
-    suggestion.pickup_address,
-    state.userLat != null && state.userLng != null ? "Current location" : null,
+    suggestion.pickupLabel,
     primaryHistory?.pickup_address,
     "Current location"
   );
   const dropoffName = firstNonEmpty(
-    suggestion.dropoff,
-    suggestion.dropoff_address,
+    suggestion.destinationLabel,
+    primaryHistory?.dest_label,
     primaryHistory?.dropoff_address,
     state.patterns?.[0]?.dropoff,
-    state.upcoming?.[0]?.dropoff,
     "Suggested destination"
   );
 
   // Get coordinates from all possible sources (may be null)
   const pickupLat = toCoordinate(
-    suggestion.pickup_lat ?? suggestion.origin_lat ?? state.userLat ?? primaryHistory?.pickup_lat
+    suggestion.pickupLat ?? state.userLat ?? primaryHistory?.origin_lat ?? primaryHistory?.pickup_lat
   );
   const pickupLng = toCoordinate(
-    suggestion.pickup_lng ?? suggestion.origin_lng ?? state.userLng ?? primaryHistory?.pickup_lng
+    suggestion.pickupLng ?? state.userLng ?? primaryHistory?.origin_lng ?? primaryHistory?.pickup_lng
   );
   const dropoffLat = toCoordinate(
-    suggestion.dropoff_lat ?? suggestion.destination_lat ?? primaryHistory?.dropoff_lat
+    suggestion.dropoffLat ?? primaryHistory?.dest_lat ?? primaryHistory?.dropoff_lat
   );
   const dropoffLng = toCoordinate(
-    suggestion.dropoff_lng ?? suggestion.destination_lng ?? primaryHistory?.dropoff_lng
+    suggestion.dropoffLng ?? primaryHistory?.dest_lng ?? primaryHistory?.dropoff_lng
   );
 
   return {
-    hasSuggestion: Boolean(state.suggestion || primaryHistory),
+    hasSuggestion: Boolean(state.suggestion),
     pickupName,
     dropoffName,
     pickupLat,
     pickupLng,
     dropoffLat,
     dropoffLng,
-    etaMinutes: Number(suggestion.eta_minutes ?? suggestion.duration_minutes ?? primaryHistory?.duration_minutes ?? 12),
-    trafficDeltaMinutes: Number(suggestion.traffic_delta_minutes ?? 0),
+    minutesUntilDeparture: Number.isFinite(Number(suggestion.minutesUntilDeparture)) ? Number(suggestion.minutesUntilDeparture) : null,
+    departureAt: suggestion.departureAt || null,
+    travelEtaMinutes: Number.isFinite(Number(suggestion.travelEtaMinutes)) ? Number(suggestion.travelEtaMinutes) : null,
+    trafficDeltaMinutes: Number(suggestion.trafficDeltaMinutes ?? 0),
     explanation: suggestion.explanation || null,
-    rideType: suggestion.ride_type || primaryHistory?.ride_type || "UberX",
-    estimatedPrice: suggestion.estimated_price || null,
+    rideType: suggestion.rideType || primaryHistory?.ride_type || null,
+    estimatedPrice: suggestion.estimatedPrice || null,
   };
 }
 
@@ -2175,6 +2292,195 @@ function describeTrafficTone(trafficDeltaMinutes, etaMinutes) {
   return "Traffic is light";
 }
 
+function normalizeRideSuggestion(raw) {
+  if (!raw) return null;
+  if (raw.llm_validated !== true) return null;
+  const departureAt = raw.recommended_departure_time || raw.usual_departure_time || raw.suggested_departure || null;
+  const recommendedOption = raw.recommended_option || {};
+  const priceValue = recommendedOption.raw_price_text
+    || (Number.isFinite(Number(recommendedOption.price)) ? formatPrice(recommendedOption.price) : null);
+  const minutesUntilDeparture = departureAt ? Math.max(0, Math.round((new Date(departureAt) - new Date()) / 60000)) : null;
+
+  return {
+    suggestionId: raw.suggestion_id ?? null,
+    predictionKind: raw.prediction_kind || "forecast",
+    departureAt,
+    minutesUntilDeparture,
+    pickupLabel: raw.origin?.label || (raw.origin?.source === "last_known_origin" ? "Last known origin" : "Current location"),
+    pickupLat: raw.origin?.lat ?? null,
+    pickupLng: raw.origin?.lng ?? null,
+    destinationLabel: raw.destination_label || raw.destination?.label || "Suggested destination",
+    dropoffLat: raw.destination?.lat ?? null,
+    dropoffLng: raw.destination?.lng ?? null,
+    travelEtaMinutes: Number(recommendedOption.eta ?? recommendedOption.eta_minutes ?? null),
+    trafficDeltaMinutes: Number(raw.traffic_delta_minutes ?? raw.early_departure_delta ?? 0),
+    explanation: raw.reason_string || raw.explanation || null,
+    rideType: recommendedOption.ride_type || null,
+    estimatedPrice: priceValue,
+  };
+}
+
+function normalizeFoodSuggestion(raw) {
+  if (!raw) return null;
+
+  const payload = raw.payload && typeof raw.payload === "object" ? raw.payload : raw;
+  const itemChoices = extractFoodItemChoices(payload, 4);
+  const primaryItem = firstNonEmpty(payload.item_name, itemChoices[0]);
+
+  const alternatives = Array.isArray(payload.alternatives)
+    ? payload.alternatives.map((entry) => {
+      const altChoices = extractFoodItemChoices(entry, 3);
+      return {
+        ...entry,
+        item_choices: altChoices,
+        item_name: firstNonEmpty(entry.item_name, altChoices[0], entry.title),
+      };
+    })
+    : [];
+
+  return {
+    ...payload,
+    suggestion_id: raw.id ?? payload.suggestion_id ?? null,
+    reason_string: raw.reason_string || payload.reason_string || payload.explanation || null,
+    route_key: payload.route_key || raw.route_key || null,
+    source_platform: payload.source_platform || payload.live_status?.platform || "swiggy",
+    deeplink: payload.deeplink || payload.live_status?.deeplink || null,
+    eta_minutes: Number(payload.eta_minutes ?? payload.live_status?.current_eta ?? null),
+    estimated_price_label: payload.estimated_price_label || formatPrice(payload.estimated_price),
+    item_choices: itemChoices,
+    item_name: primaryItem || null,
+    alternatives,
+  };
+}
+
+function extractFoodItemChoices(entry, limit = 3) {
+  if (!entry || typeof entry !== "object") return [];
+
+  const seen = new Set();
+  const items = [];
+  const add = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(normalized);
+  };
+
+  add(entry.item_name);
+
+  if (Array.isArray(entry.items)) {
+    entry.items.forEach((item) => {
+      if (typeof item === "string") {
+        add(item);
+        return;
+      }
+      if (item && typeof item === "object") {
+        add(item.name || item.item_name || item.title);
+      }
+    });
+  }
+
+  if (Array.isArray(entry.item_choices)) {
+    entry.item_choices.forEach(add);
+  }
+
+  const parsedItems = parseItemsJson(entry.items_json);
+  parsedItems.forEach((item) => add(item.name || item.item_name || item.title));
+
+  return items.slice(0, Math.max(1, limit));
+}
+
+function parseItemsJson(rawItems) {
+  if (Array.isArray(rawItems)) return rawItems;
+  if (typeof rawItems !== "string" || !rawItems.trim()) return [];
+
+  try {
+    const parsed = JSON.parse(rawItems);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getHomeFoodContext() {
+  const suggestion = state.foodSuggestion;
+  if (suggestion) {
+    const choices = [
+      ...extractFoodItemChoices(suggestion, 4),
+      ...(Array.isArray(suggestion.alternatives)
+        ? suggestion.alternatives.flatMap((entry) => extractFoodItemChoices(entry, 2))
+        : []),
+    ].filter(Boolean);
+
+    const primary = firstNonEmpty(choices[0], "Chef special");
+    const secondary = firstNonEmpty(choices[1], "");
+    const restaurant = firstNonEmpty(suggestion.restaurant_name, "your go-to place");
+    const provider = providerLabel(suggestion.source_platform || "swiggy");
+    const etaMinutes = Number(suggestion.eta_minutes || suggestion.live_status?.current_eta || 0);
+    const timingText = etaMinutes > 0
+      ? `ETA about ${Math.max(1, etaMinutes)} mins`
+      : "Matched to your usual order window";
+    const summary = suggestion.reason_string
+      ? `${suggestion.reason_string} Recommend ${primary} from ${restaurant}.`
+      : `Based on your recent orders, ${primary} from ${restaurant} is a strong pick right now.`;
+
+    return {
+      title: secondary ? `Tonight: ${primary} or ${secondary}` : `Tonight: ${primary}`,
+      summary,
+      recommendation: secondary ? `${primary} • backup ${secondary}` : primary,
+      timing: timingText,
+      provider: `${provider} ready`,
+    };
+  }
+
+  const recentItems = state.foodHistory
+    .flatMap((order) => extractFoodItemChoices(order, 2))
+    .filter(Boolean);
+  const primaryRecent = firstNonEmpty(recentItems[0], "Your regular order");
+  const secondaryRecent = firstNonEmpty(recentItems[1], "");
+
+  return {
+    title: secondaryRecent ? `Tonight: ${primaryRecent} or ${secondaryRecent}` : `Tonight: ${primaryRecent}`,
+    summary: "I used your synced food history to suggest real dishes instead of a generic dining prompt.",
+    recommendation: secondaryRecent ? `${primaryRecent} • backup ${secondaryRecent}` : primaryRecent,
+    timing: "Matched to your recent evening ordering pattern",
+    provider: "Swiggy ready",
+  };
+}
+
+function formatCountdown(minutes) {
+  const total = Number(minutes);
+  if (!Number.isFinite(total)) return "SOON";
+  if (total < 60) return `IN ${Math.max(1, total)}M`;
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  return mins ? `IN ${hours}H ${mins}M` : `IN ${hours}H`;
+}
+
+function formatCompactCountdown(minutes) {
+  const total = Number(minutes);
+  if (!Number.isFinite(total)) return "--";
+  if (total < 60) return `${Math.max(1, total)}M`;
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  return mins ? `${hours}H ${mins}M` : `${hours}H`;
+}
+
+function formatDetailedDeparture(value) {
+  if (!value) return "soon";
+  try {
+    return new Date(value).toLocaleString("en-IN", {
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return String(value);
+  }
+}
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -2185,6 +2491,12 @@ function firstNonEmpty(...values) {
 function toFiniteNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+function isValidLiveContextCoords(lat, lng) {
+  const latNum = toFiniteNumber(lat);
+  const lngNum = toFiniteNumber(lng);
+  return latNum != null && lngNum != null && !(latNum === 0 && lngNum === 0);
 }
 
 function haversineDistanceKm(lat1, lng1, lat2, lng2) {
@@ -2239,10 +2551,33 @@ function getCurrentRoute() {
 function showToast(message) {
   const toast = document.getElementById("toast");
   if (!toast) return;
+  
+  // Clear any existing timeout
+  clearTimeout(showToast.timer);
+  
+  // Reset any ongoing animations
+  toast.style.transition = 'none';
+  toast.style.opacity = '0';
+  toast.style.transform = 'translateX(-50%) translateY(-20px)';
+  
+  // Set the message
   toast.textContent = message;
   toast.classList.remove("hidden");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.add("hidden"), 2800);
+  
+  // Force reflow to ensure CSS reset
+  void toast.offsetWidth;
+  
+  // Apply smooth animation
+  toast.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+  toast.style.opacity = '1';
+  toast.style.transform = 'translateX(-50%) translateY(0)';
+  
+  // Set timeout for auto-hide
+  showToast.timer = setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(-50%) translateY(-20px)';
+    setTimeout(() => toast.classList.add("hidden"), 300);
+  }, 2800);
 }
 
 async function get(url) {
@@ -2269,15 +2604,24 @@ function shortAddress(value) {
 }
 
 function formatHistoryMeta(ride) {
-  const date = ride?.request_timestamp ? formatDate(ride.request_timestamp) : "Today";
-  const status = ride?.source_platform ? `${ride.source_platform.toUpperCase()} • Completed` : "Completed";
+  const date = ride?.departure_time ? formatDate(ride.departure_time) : ride?.request_timestamp ? formatDate(ride.request_timestamp) : "Today";
+  const platform = ride?.platform || ride?.source_platform;
+  const status = platform ? `${String(platform).toUpperCase()} • Completed` : "Completed";
   return `${date} • ${status}`;
 }
 
 function formatClock(value) {
-  if (!value) return "18:45";
-  const match = String(value).match(/(\d{1,2}:\d{2})/);
-  return match ? match[1] : String(value);
+  if (!value) return "--";
+  try {
+    return new Date(value).toLocaleTimeString("en-IN", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    const match = String(value).match(/(\d{1,2}:\d{2})/);
+    return match ? match[1] : String(value);
+  }
 }
 
 function formatDate(timestamp) {

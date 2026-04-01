@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 
 SESSION_DIR = os.path.join(os.path.dirname(__file__), "browser_session")
 COOKIES_FILE = os.path.join(SESSION_DIR, "cookies.json")
+SCRAPE_DEBUG_DIR = os.path.join(os.path.dirname(__file__), "scrape_debug")
+UBER_HISTORY_DEBUG_PATH = os.path.join(SCRAPE_DEBUG_DIR, "uber_history_last.json")
 
 # Global browser state
 _browser: Browser | None = None
@@ -33,6 +35,20 @@ _login_page: Page | None = None
 _popup_page: Page | None = None
 _scrape_page: Page | None = None  # Persistent page kept alive for background scraping
 _playwright = None
+
+KNOWN_RIDE_TYPES = [
+    "UberXL",
+    "Uber Black",
+    "Uber Intercity",
+    "Uber Auto",
+    "UberAuto",
+    "Uber Moto",
+    "UberPool",
+    "Premier",
+    "Uber Go",
+    "UberGo",
+    "UberX",
+]
 
 
 # ── Browser Lifecycle ────────────────────────────────────────────────────────
@@ -73,6 +89,16 @@ async def _ensure_browser() -> BrowserContext:
             log.warning("Failed to restore cookies: %s", e)
 
     return _context
+
+
+async def _ensure_scrape_page(ctx: BrowserContext) -> Page:
+    """Return a live page for history scraping, recreating it if needed."""
+    global _scrape_page
+    if _scrape_page and not _scrape_page.is_closed():
+        return _scrape_page
+    _scrape_page = await ctx.new_page()
+    log.info("Created persistent Uber scrape page")
+    return _scrape_page
 
 
 async def _save_cookies():
@@ -449,15 +475,8 @@ async def scrape_ride_history(max_pages: int = 10) -> dict:
     Paginates with nextPageToken to fetch all history.
     The scraping page is kept alive between calls for persistent background use.
     """
-    global _scrape_page
     ctx = await _ensure_browser()
-
-    # Reuse the persistent scrape page instead of opening/closing one each time.
-    if not _scrape_page or _scrape_page.is_closed():
-        _scrape_page = await ctx.new_page()
-        log.info("Created persistent Uber scrape page")
-
-    page = _scrape_page
+    page = await _ensure_scrape_page(ctx)
 
     try:
         # Navigate to riders.uber.com to be on the right domain
@@ -478,123 +497,174 @@ async def scrape_ride_history(max_pages: int = 10) -> dict:
             headers = request.headers
             for name in ["x-csrf-token", "csrf-token", "x-xsrf-token"]:
                 if name in headers and headers[name]:
-                    csrf_token = headers[name]
-                    log.info("Captured CSRF from request header: %s", csrf_token[:30])
+                    new_token = headers[name]
+                    if new_token != csrf_token:
+                        csrf_token = new_token
+                        log.info("Captured CSRF from request header: %s", csrf_token[:30])
 
         page.on("request", capture_csrf)
 
-        # Reload to capture the CSRF from the page's own GraphQL calls
-        await page.reload(wait_until="domcontentloaded")
-        await page.wait_for_timeout(5000)
+        try:
+            # Reload to capture the CSRF from the page's own GraphQL calls
+            await page.reload(wait_until="domcontentloaded")
+            await page.wait_for_timeout(5000)
 
-        # Also try extracting from the page DOM/JS
-        if not csrf_token:
-            csrf_token = await page.evaluate("""() => {
-            // Check meta tags
-            const meta = document.querySelector('meta[name="csrf-token"]') ||
-                         document.querySelector('meta[name="_csrf"]') ||
-                         document.querySelector('meta[name="csrf"]');
-            if (meta) return meta.getAttribute('content');
+            # Also try extracting from the page DOM/JS
+            if not csrf_token:
+                csrf_token = await page.evaluate("""() => {
+                // Check meta tags
+                const meta = document.querySelector('meta[name="csrf-token"]') ||
+                             document.querySelector('meta[name="_csrf"]') ||
+                             document.querySelector('meta[name="csrf"]');
+                if (meta) return meta.getAttribute('content');
 
-            // Check cookies
-            const cookies = document.cookie.split(';');
-            for (const c of cookies) {
-                const [name, val] = c.trim().split('=');
-                if (name && (name.toLowerCase().includes('csrf') || name.toLowerCase().includes('xsrf'))) {
-                    return val;
-                }
-            }
-
-            // Check window.__CSRF or similar globals
-            if (window.__CSRF_TOKEN__) return window.__CSRF_TOKEN__;
-            if (window.__csrf) return window.__csrf;
-
-            // Check for token in script tags
-            const scripts = document.querySelectorAll('script');
-            for (const s of scripts) {
-                const text = s.textContent || '';
-                const match = text.match(/csrf[_-]?token["']?\\s*[:=]\\s*["']([^"']+)["']/i);
-                if (match) return match[1];
-            }
-
-            return null;
-        }""")
-        log.info("CSRF token: %s", csrf_token[:20] + "..." if csrf_token else "None (will try without)")
-
-        # Fetch trips via GraphQL, paginating through all results
-        all_trips = []
-        next_token = None
-
-        for page_num in range(max_pages):
-            log.info("Fetching trips page %d (token: %s)", page_num + 1, next_token[:20] if next_token else "None")
-
-            variables = {
-                "includePast": True,
-                "includeUpcoming": page_num == 0,
-                "limit": 50,
-                "orderTypes": ["RIDES", "TRAVEL"],
-                "profileType": "PERSONAL",
-            }
-            if next_token:
-                variables["nextPageToken"] = next_token
-
-            result = await page.evaluate("""async (vars) => {
-                try {
-                    const headers = {'Content-Type': 'application/json'};
-                    if (vars.csrf) {
-                        headers['x-csrf-token'] = vars.csrf;
+                // Check cookies
+                const cookies = document.cookie.split(';');
+                for (const c of cookies) {
+                    const [name, val] = c.trim().split('=');
+                    if (name && (name.toLowerCase().includes('csrf') || name.toLowerCase().includes('xsrf'))) {
+                        return val;
                     }
-                    const resp = await fetch('/graphql', {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify({
-                            operationName: 'Activities',
-                            variables: vars.variables,
-                            query: vars.query,
-                        }),
-                        credentials: 'include',
-                    });
-                    return await resp.json();
-                } catch(e) {
-                    return {error: e.message};
                 }
-            }""", {"variables": variables, "query": ACTIVITIES_QUERY, "csrf": csrf_token})
 
-            if not result or result.get("error"):
-                log.error("GraphQL request failed: %s", result)
-                break
+                // Check window.__CSRF or similar globals
+                if (window.__CSRF_TOKEN__) return window.__CSRF_TOKEN__;
+                if (window.__csrf) return window.__csrf;
 
-            past = result.get("data", {}).get("activities", {}).get("past", {})
-            activities = past.get("activities", [])
-            next_token = past.get("nextPageToken")
+                // Check for token in script tags
+                const scripts = document.querySelectorAll('script');
+                for (const s of scripts) {
+                    const text = s.textContent || '';
+                    const match = text.match(/csrf[_-]?token["']?\\s*[:=]\\s*["']([^"']+)["']/i);
+                    if (match) return match[1];
+                }
 
-            if not activities:
-                log.info("No more trips on page %d", page_num + 1)
-                break
+                return null;
+            }""")
+            log.info("CSRF token: %s", csrf_token[:20] + "..." if csrf_token else "None (will try without)")
 
-            all_trips.extend(activities)
-            log.info("Fetched %d trips on page %d (total: %d)", len(activities), page_num + 1, len(all_trips))
+            # Fetch trips via GraphQL, paginating through all results
+            all_trips = []
+            next_token = None
 
-            if not next_token:
-                log.info("No more pages")
-                break
+            for page_num in range(max_pages):
+                log.info("Fetching trips page %d (token: %s)", page_num + 1, next_token[:20] if next_token else "None")
 
-        # Parse and store trips
-        synced = 0
-        for trip in all_trips:
-            ride = _parse_activity_trip(trip)
-            if ride:
+                variables = {
+                    "includePast": True,
+                    "includeUpcoming": page_num == 0,
+                    "limit": 50,
+                    "orderTypes": ["RIDES", "TRAVEL"],
+                    "profileType": "PERSONAL",
+                }
+                if next_token:
+                    variables["nextPageToken"] = next_token
+
+                result = await page.evaluate("""async (vars) => {
+                    try {
+                        const headers = {'Content-Type': 'application/json'};
+                        if (vars.csrf) {
+                            headers['x-csrf-token'] = vars.csrf;
+                        }
+                        const resp = await fetch('/graphql', {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify({
+                                operationName: 'Activities',
+                                variables: vars.variables,
+                                query: vars.query,
+                            }),
+                            credentials: 'include',
+                        });
+                        return await resp.json();
+                    } catch(e) {
+                        return {error: e.message};
+                    }
+                }""", {"variables": variables, "query": ACTIVITIES_QUERY, "csrf": csrf_token})
+
+                if not result or result.get("error"):
+                    log.error("GraphQL request failed: %s", result)
+                    break
+
+                past = result.get("data", {}).get("activities", {}).get("past", {})
+                activities = past.get("activities", [])
+                next_token = past.get("nextPageToken")
+
+                if not activities:
+                    log.info("No more trips on page %d", page_num + 1)
+                    break
+
+                all_trips.extend(activities)
+                log.info("Fetched %d trips on page %d (total: %d)", len(activities), page_num + 1, len(all_trips))
+
+                if not next_token:
+                    log.info("No more pages")
+                    break
+
+            # Parse and store trips
+            synced = 0
+            skipped_incomplete = 0
+            deleted_low_fidelity = 0
+            scrape_report: list[dict] = []
+            for trip in all_trips:
+                summary_ride = _parse_activity_trip(trip)
+                if not summary_ride:
+                    continue
+
+                if _should_skip_summary_trip(summary_ride):
+                    debug_entry = _build_trip_debug_entry(
+                        trip,
+                        summary_ride,
+                        None,
+                        summary_ride,
+                        ["skipped_status"],
+                    )
+                    debug_entry["status"] = "skipped_status"
+                    scrape_report.append(debug_entry)
+                    log.info(
+                        "Skipping Uber trip %s before detail scrape because status=%s",
+                        summary_ride["external_ride_id"],
+                        summary_ride.get("trip_status"),
+                    )
+                    continue
+
+                page = await _ensure_scrape_page(ctx)
+                detail_ride = await _scrape_trip_detail(ctx, page, summary_ride["external_ride_id"])
+                ride = _build_verified_trip_record(summary_ride, detail_ride)
+                missing_fields = _missing_required_history_fields(ride)
+                debug_entry = _build_trip_debug_entry(trip, summary_ride, detail_ride, ride, missing_fields)
+                scrape_report.append(debug_entry)
+                _log_trip_debug_entry(debug_entry)
+
+                if missing_fields:
+                    skipped_incomplete += 1
+                    log.info("Skipping incomplete Uber trip %s because missing fields: %s", summary_ride["external_ride_id"], ", ".join(missing_fields))
+                    continue
+
                 db.insert_ride(ride)
                 synced += 1
 
-        # Page intentionally NOT closed — kept alive for background price/ETA polling.
-        log.info("Uber scrape page kept alive. Tabs open: %d", len(ctx.pages))
+            # Page intentionally NOT closed — kept alive for background price/ETA polling.
+            log.info("Uber scrape page kept alive. Tabs open: %d", len(ctx.pages))
 
-        if synced > 0:
-            db.set_setting("last_sync_time", datetime.utcnow().isoformat())
-            db.set_setting("uber_history_synced", "true")
+            if synced > 0:
+                deleted_low_fidelity = db.delete_low_fidelity_uber_rides()
+                db.set_setting("last_sync_time", datetime.utcnow().isoformat())
+                db.set_setting("uber_history_synced", "true")
 
-        return {"synced": synced, "total_found": len(all_trips)}
+            debug_report_path = _write_history_debug_report(scrape_report)
+            return {
+                "synced": synced,
+                "total_found": len(all_trips),
+                "skipped_incomplete": skipped_incomplete,
+                "deleted_low_fidelity": deleted_low_fidelity,
+                "debug_report_path": debug_report_path,
+            }
+        finally:
+            try:
+                page.remove_listener("request", capture_csrf)
+            except Exception:
+                pass
 
     except Exception as e:
         log.error("Ride history scraping failed: %s", e)
@@ -635,9 +705,11 @@ def _parse_activity_trip(trip: dict) -> dict | None:
 
         # Parse price from description
         price = None
-        canceled = "cancel" in description.lower()
+        lowered_description = description.lower()
+        canceled = "cancel" in lowered_description
+        unfulfilled = "unfulfilled" in lowered_description
         price_match = re.search(r'[₹$€£]\s*([\d,.]+)', description)
-        if price_match and not canceled:
+        if price_match and not (canceled or unfulfilled):
             price = float(price_match.group(1).replace(",", ""))
 
         # Parse date/time from subtitle (e.g., "Mar 28 • 3:53 AM")
@@ -666,15 +738,24 @@ def _parse_activity_trip(trip: dict) -> dict | None:
                 pickup_lat = float(lat_match.group(1))
                 pickup_lng = float(lng_match.group(1))
 
+        ride_type = _extract_ride_type(
+            title,
+            description,
+            trip.get("accessibilityLabel"),
+            trip.get("trackingLabel"),
+        )
+
         return {
             "external_ride_id": uuid,
             "source_platform": "uber",
-            "pickup_address": "Unknown pickup",
-            "dropoff_address": title,
+            "pickup_address": None,
+            "dropoff_address": title or None,
             "pickup_lat": pickup_lat,
             "pickup_lng": pickup_lng,
             "request_timestamp": ts,
-            "ride_type": "UberX",
+            "ride_type": ride_type,
+            "is_canceled": canceled,
+            "trip_status": _extract_trip_status(description),
             "price": price,
             "duration_minutes": None,
             "distance_miles": None,
@@ -903,7 +984,12 @@ def _parse_api_trips(data: dict) -> list[dict]:
             price = float(nums[0].replace(",", "")) if nums else None
 
         # Parse ride type
-        ride_type = item.get("vehicleViewName") or item.get("productType") or item.get("product_id") or "UberX"
+        ride_type = _extract_ride_type(
+            item.get("vehicleViewName"),
+            item.get("productType"),
+            item.get("product_id"),
+            item.get("displayName"),
+        )
 
         # Parse duration
         duration = item.get("duration") or item.get("tripDuration")
@@ -926,7 +1012,7 @@ def _parse_api_trips(data: dict) -> list[dict]:
             "dropoff_lat": dropoff_lat,
             "dropoff_lng": dropoff_lng,
             "request_timestamp": ts,
-            "ride_type": str(ride_type),
+            "ride_type": str(ride_type) if ride_type else None,
             "price": price if isinstance(price, (int, float)) else None,
             "duration_minutes": duration,
             "distance_miles": distance,
@@ -937,8 +1023,9 @@ def _parse_api_trips(data: dict) -> list[dict]:
     return rides
 
 
-async def _scrape_trip_detail(page: Page, trip_id: str) -> dict | None:
+async def _scrape_trip_detail(ctx: BrowserContext, page: Page, trip_id: str, attempt: int = 1) -> dict | None:
     """Scrape details of a single trip."""
+    global _scrape_page
     try:
         url = f"https://riders.uber.com/trips/{trip_id}"
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -966,7 +1053,7 @@ async def _scrape_trip_detail(page: Page, trip_id: str) -> dict | None:
             }
 
             return {
-                raw_text: body.substring(0, 3000),
+                raw_text: body.substring(0, 8000),
                 price: priceMatch ? priceMatch[0] : null,
                 date: dateMatch ? dateMatch[0] : null,
                 time: timeMatch ? timeMatch[0] : null,
@@ -1006,12 +1093,9 @@ async def _scrape_trip_detail(page: Page, trip_id: str) -> dict | None:
 
         # Extract ride type
         raw = detail.get("raw_text", "")
-        ride_type = "UberX"
-        for rt in ["UberXL", "Uber Go", "UberGo", "Uber Auto", "UberAuto", "Premier",
-                    "Uber Black", "UberPool", "Uber Moto", "Uber Intercity", "UberX"]:
-            if rt.lower() in raw.lower():
-                ride_type = rt
-                break
+        ride_type = _extract_ride_type(raw)
+        route_pickup, route_dropoff = _extract_route_stop_addresses(raw)
+        is_canceled = "cancel" in raw.lower()
 
         # Parse distance
         dist = None
@@ -1024,10 +1108,11 @@ async def _scrape_trip_detail(page: Page, trip_id: str) -> dict | None:
         return {
             "external_ride_id": trip_id,
             "source_platform": "uber",
-            "pickup_address": detail.get("pickup") or "Unknown pickup",
-            "dropoff_address": detail.get("dropoff") or "Unknown dropoff",
+            "pickup_address": _clean_scraped_value(detail.get("pickup")) or route_pickup,
+            "dropoff_address": _clean_scraped_value(detail.get("dropoff")) or route_dropoff,
             "request_timestamp": ts,
             "ride_type": ride_type,
+            "is_canceled": is_canceled,
             "price": price,
             "duration_minutes": detail.get("duration_minutes"),
             "distance_miles": dist,
@@ -1035,8 +1120,301 @@ async def _scrape_trip_detail(page: Page, trip_id: str) -> dict | None:
         }
 
     except Exception as e:
+        if attempt == 1 and _is_closed_page_error(e):
+            log.warning("Retrying trip %s on a fresh scrape page after browser/page closure: %s", trip_id, e)
+            try:
+                if page and not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
+            _scrape_page = None
+            fresh_page = await _ensure_scrape_page(ctx)
+            return await _scrape_trip_detail(ctx, fresh_page, trip_id, attempt=2)
         log.warning("Failed to scrape trip %s: %s", trip_id, e)
         return None
+
+
+def _clean_scraped_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in {"unknown", "unknown pickup", "unknown dropoff", "destination", "pickup", "dropoff"}:
+        return None
+    return text
+
+
+def _extract_ride_type(*values: object) -> str | None:
+    haystacks = [str(value) for value in values if value]
+    for ride_type in KNOWN_RIDE_TYPES:
+        needle = ride_type.lower()
+        for haystack in haystacks:
+            if needle in haystack.lower():
+                return ride_type
+    return None
+
+
+def _is_closed_page_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(
+        token in message
+        for token in [
+            "target page, context or browser has been closed",
+            "connection closed while reading from the driver",
+            "the handler is closed",
+            "transport closed",
+        ]
+    )
+
+
+def _is_time_line(text: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)", text.strip()))
+
+
+def _looks_like_address_line(text: str) -> bool:
+    cleaned = text.strip()
+    if not cleaned or _is_time_line(cleaned):
+        return False
+    lowered = cleaned.lower()
+    blocked = {
+        "uber",
+        "your trip",
+        "trip rating",
+        "trip details",
+        "route",
+        "cash",
+        "view receipt",
+        "resend receipt",
+        "request invoice",
+        "get help",
+        "cancelled",
+        "canceled",
+    }
+    if lowered in blocked:
+        return False
+    return "," in cleaned or bool(re.search(r"\d", cleaned))
+
+
+def _extract_route_stop_addresses(raw_text: object) -> tuple[str | None, str | None]:
+    if not raw_text:
+        return None, None
+    lines = [line.strip() for line in str(raw_text).splitlines() if line.strip()]
+    route_idx = None
+    for index, line in enumerate(lines):
+        if line.lower() == "route":
+            route_idx = index
+            break
+    if route_idx is None:
+        return None, None
+
+    route_lines = lines[route_idx + 1 : route_idx + 9]
+    address_candidates: list[str] = []
+    for index, line in enumerate(route_lines):
+        if not _looks_like_address_line(line):
+            continue
+        next_line = route_lines[index + 1] if index + 1 < len(route_lines) else ""
+        if _is_time_line(next_line):
+            address_candidates.append(line)
+            continue
+        if index > 0 and _is_time_line(route_lines[index - 1]):
+            address_candidates.append(line)
+
+    deduped: list[str] = []
+    for candidate in address_candidates:
+        cleaned = _clean_scraped_value(candidate)
+        if cleaned and cleaned not in deduped:
+            deduped.append(cleaned)
+
+    if len(deduped) >= 2:
+        return deduped[0], deduped[1]
+    if len(deduped) == 1:
+        return deduped[0], None
+    return None, None
+
+
+def _merge_trip_records(summary_ride: dict | None, detail_ride: dict | None) -> dict | None:
+    if not summary_ride:
+        return detail_ride
+    if not detail_ride:
+        return summary_ride
+
+    merged = dict(summary_ride)
+    for key, value in detail_ride.items():
+        if key == "raw_payload":
+            merged["raw_payload"] = {
+                "activity": summary_ride.get("raw_payload"),
+                "detail": detail_ride.get("raw_payload"),
+            }
+            continue
+        if value not in (None, "", []):
+            merged[key] = value
+    return merged
+
+
+def _build_verified_trip_record(summary_ride: dict | None, detail_ride: dict | None) -> dict | None:
+    if not summary_ride or not detail_ride:
+        return None
+    merged = _merge_trip_records(summary_ride, detail_ride)
+    if not merged:
+        return None
+    verified = dict(merged)
+    verified["pickup_address"] = _clean_scraped_value(detail_ride.get("pickup_address"))
+    verified["dropoff_address"] = _clean_scraped_value(detail_ride.get("dropoff_address"))
+    verified["ride_type"] = _clean_scraped_value(detail_ride.get("ride_type"))
+    verified["price"] = detail_ride.get("price")
+    verified["duration_minutes"] = detail_ride.get("duration_minutes")
+    verified["distance_miles"] = detail_ride.get("distance_miles")
+    return verified
+
+
+def _extract_trip_status(description: object) -> str:
+    text = str(description or "").strip().lower()
+    if "cancel" in text:
+        return "canceled"
+    if "unfulfilled" in text:
+        return "unfulfilled"
+    if "completed" in text:
+        return "completed"
+    if text:
+        return "completed"
+    return "unknown"
+
+
+def _should_skip_summary_trip(summary_ride: dict | None) -> bool:
+    if not summary_ride:
+        return True
+    return summary_ride.get("trip_status") in {"canceled", "unfulfilled"}
+
+
+def _ride_has_actual_history_fields(ride: dict | None) -> bool:
+    if not ride:
+        return False
+    return not _missing_required_history_fields(ride)
+
+
+def _missing_required_history_fields(ride: dict | None) -> list[str]:
+    if not ride:
+        return ["pickup_address", "dropoff_address", "price"]
+    missing: list[str] = []
+    if not _clean_scraped_value(ride.get("pickup_address")):
+        missing.append("pickup_address")
+    if not _clean_scraped_value(ride.get("dropoff_address")):
+        missing.append("dropoff_address")
+    if ride.get("price") is None:
+        missing.append("price")
+    return missing
+
+
+def _truncate_debug_text(value: object, limit: int = 400) -> str | None:
+    cleaned = _clean_scraped_value(value)
+    if not cleaned:
+        return None
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3] + "..."
+
+
+def _build_trip_debug_entry(
+    trip: dict,
+    summary_ride: dict | None,
+    detail_ride: dict | None,
+    merged_ride: dict | None,
+    missing_fields: list[str],
+) -> dict:
+    detail_payload = ((detail_ride or {}).get("raw_payload") or {}).get("scraped", {})
+    return {
+        "trip_id": (summary_ride or {}).get("external_ride_id") or trip.get("uuid"),
+        "status": "ready" if not missing_fields else "skipped_incomplete",
+        "missing_fields": missing_fields,
+        "summary": {
+            "title": _truncate_debug_text(trip.get("title")),
+            "subtitle": _truncate_debug_text(trip.get("subtitle")),
+            "description": _truncate_debug_text(trip.get("description")),
+            "card_url": trip.get("cardURL"),
+            "ride_type_guess": (summary_ride or {}).get("ride_type"),
+            "dropoff_guess": (summary_ride or {}).get("dropoff_address"),
+            "pickup_lat": (summary_ride or {}).get("pickup_lat"),
+            "pickup_lng": (summary_ride or {}).get("pickup_lng"),
+        },
+        "detail": {
+            "page_pickup": detail_ride.get("pickup_address") if detail_ride else None,
+            "page_dropoff": detail_ride.get("dropoff_address") if detail_ride else None,
+            "page_ride_type": detail_ride.get("ride_type") if detail_ride else None,
+            "page_price": detail_ride.get("price") if detail_ride else None,
+            "page_duration_minutes": detail_ride.get("duration_minutes") if detail_ride else None,
+            "page_distance_miles": detail_ride.get("distance_miles") if detail_ride else None,
+            "raw_pickup_label": detail_payload.get("pickup"),
+            "raw_dropoff_label": detail_payload.get("dropoff"),
+            "raw_price_text": detail_payload.get("price"),
+            "raw_distance_text": detail_payload.get("distance_text"),
+            "raw_text_excerpt": _truncate_debug_text(detail_payload.get("raw_text"), limit=1200),
+        },
+        "merged": {
+            "pickup_address": (merged_ride or {}).get("pickup_address"),
+            "dropoff_address": (merged_ride or {}).get("dropoff_address"),
+            "ride_type": (merged_ride or {}).get("ride_type"),
+            "request_timestamp": (merged_ride or {}).get("request_timestamp"),
+            "price": (merged_ride or {}).get("price"),
+        },
+    }
+
+
+def _log_trip_debug_entry(debug_entry: dict) -> None:
+    trip_id = debug_entry.get("trip_id")
+    summary = debug_entry.get("summary", {})
+    detail = debug_entry.get("detail", {})
+    merged = debug_entry.get("merged", {})
+    missing_fields = debug_entry.get("missing_fields", [])
+    log.info(
+        "Uber trip %s summary: title=%r subtitle=%r description=%r ride_type_guess=%r",
+        trip_id,
+        summary.get("title"),
+        summary.get("subtitle"),
+        summary.get("description"),
+        summary.get("ride_type_guess"),
+    )
+    log.info(
+        "Uber trip %s detail: pickup=%r dropoff=%r ride_type=%r raw_pickup=%r raw_dropoff=%r",
+        trip_id,
+        detail.get("page_pickup"),
+        detail.get("page_dropoff"),
+        detail.get("page_ride_type"),
+        detail.get("raw_pickup_label"),
+        detail.get("raw_dropoff_label"),
+    )
+    if missing_fields:
+        if "pickup_address" in missing_fields and detail.get("raw_text_excerpt") and "cancel" in str(detail.get("raw_text_excerpt")).lower():
+            log.info("Uber trip %s note: this looks like a canceled trip detail page and Uber is not exposing route stops there", trip_id)
+        log.info(
+            "Uber trip %s missing required fields: %s | raw_text_excerpt=%r",
+            trip_id,
+            ", ".join(missing_fields),
+            detail.get("raw_text_excerpt"),
+        )
+    else:
+        log.info(
+            "Uber trip %s merged result: pickup=%r dropoff=%r ride_type=%r price=%r",
+            trip_id,
+            merged.get("pickup_address"),
+            merged.get("dropoff_address"),
+            merged.get("ride_type"),
+            merged.get("price"),
+        )
+
+
+def _write_history_debug_report(scrape_report: list[dict]) -> str:
+    os.makedirs(SCRAPE_DEBUG_DIR, exist_ok=True)
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "trip_count": len(scrape_report),
+        "entries": scrape_report,
+    }
+    with open(UBER_HISTORY_DEBUG_PATH, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    log.info("Wrote Uber history scrape report to %s", UBER_HISTORY_DEBUG_PATH)
+    return UBER_HISTORY_DEBUG_PATH
 
 
 # ── Live Estimates Scraping ──────────────────────────────────────────────────
@@ -1076,15 +1454,27 @@ async def scrape_live_estimates(
         await page.goto(uber_url, wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(8000)
 
-        # Extract from DOM
-        estimates = await page.evaluate("""() => {
-            const results = [];
+        # Extract product cards and full text from DOM
+        dom_snapshot = await page.evaluate("""() => {
             const body = document.body.innerText || '';
-            const priceMatches = body.match(/[₹$€£]\\s*[\\d,.]+/g);
-            if (priceMatches) {
-                results.push({type: 'prices_found', prices: priceMatches});
+            const nodes = Array.from(document.querySelectorAll('div, li, button, section, article'));
+            const candidates = [];
+            const seen = new Set();
+            for (const node of nodes) {
+                const text = (node.innerText || '').trim();
+                if (!text || text.length < 5 || text.length > 300) continue;
+                const normalized = text.replace(/\\s+/g, ' ').trim();
+                const lower = normalized.toLowerCase();
+                const hasRideName = ['uberxl', 'uber x', 'uberx', 'uber go', 'ubergo', 'uber auto', 'uberauto', 'premier', 'uber moto', 'uber intercity', 'uber black', 'uber pool', 'uberpool']
+                    .some((name) => lower.includes(name));
+                const hasPrice = /[₹$€£]\\s*[\\d,.]+/.test(normalized);
+                const hasEta = /\\b\\d+\\s*(?:min|mins|minute|minutes)\\b/i.test(normalized);
+                if (!hasRideName && !hasPrice) continue;
+                if (seen.has(normalized)) continue;
+                seen.add(normalized);
+                candidates.push({text: normalized});
             }
-            return results;
+            return {raw_text: body.substring(0, 12000), candidates};
         }""")
 
         if captured_responses:
@@ -1094,14 +1484,18 @@ async def scrape_live_estimates(
             if result["estimates"]:
                 result["best_estimate"] = _select_best_live_estimate(result["estimates"])
 
-        if estimates:
-            result["dom_data"] = estimates
+        if dom_snapshot:
+            result["dom_data"] = dom_snapshot
             if not result["live"]:
                 result["live"] = True
             if not result.get("estimates"):
-                result["estimates"] = _extract_dom_estimate_candidates(estimates)
+                result["estimates"] = _extract_dom_estimate_candidates(dom_snapshot)
                 if result["estimates"]:
                     result["best_estimate"] = _select_best_live_estimate(result["estimates"])
+            else:
+                dom_estimates = _extract_dom_estimate_candidates(dom_snapshot)
+                result["estimates"] = _merge_live_estimates(result["estimates"], dom_estimates)
+                result["best_estimate"] = _select_best_live_estimate(result["estimates"])
 
         await page.close()
         return result
@@ -1217,25 +1611,73 @@ def _candidate_from_dict(node: dict) -> dict | None:
 
 def _extract_dom_estimate_candidates(dom_estimates: list[dict]) -> list[dict]:
     candidates: list[dict] = []
-    for entry in dom_estimates:
-        if not isinstance(entry, dict):
-            continue
-        prices = entry.get("prices")
-        if not isinstance(prices, list):
-            continue
-        for price in prices:
-            if not isinstance(price, str):
+    if isinstance(dom_estimates, dict):
+        for entry in dom_estimates.get("candidates") or []:
+            if not isinstance(entry, dict):
                 continue
-            candidates.append(
-                {
-                    "ride_type": "Uber",
-                    "price_text": price.strip(),
-                    "low_estimate": None,
-                    "high_estimate": _price_to_number(price),
-                    "eta_minutes": None,
-                }
-            )
+            text = entry.get("text")
+            if not isinstance(text, str):
+                continue
+            parsed = _parse_dom_product_candidate(text)
+            if parsed:
+                candidates.append(parsed)
+        if candidates:
+            return candidates
+        raw_text = dom_estimates.get("raw_text")
+        if isinstance(raw_text, str) and raw_text.strip():
+            candidates.extend(_parse_dom_candidates_from_text(raw_text))
     return candidates
+
+
+def _merge_live_estimates(primary: list[dict], secondary: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[tuple[str, str, int | None]] = set()
+    for source in (primary, secondary):
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            key = (
+                str(item.get("ride_type") or "").strip().lower(),
+                str(item.get("price_text") or "").strip(),
+                item.get("eta_minutes"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+def _parse_dom_candidates_from_text(raw_text: str) -> list[dict]:
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    matches: list[dict] = []
+    for index, line in enumerate(lines):
+        ride_type = _extract_ride_type(line)
+        if not ride_type:
+            continue
+        window = " ".join(lines[index : index + 4])
+        candidate = _parse_dom_product_candidate(window)
+        if candidate:
+            matches.append(candidate)
+    return matches
+
+
+def _parse_dom_product_candidate(text: str) -> dict | None:
+    ride_type = _extract_ride_type(text)
+    price_match = re.search(r"[₹$€£]\s*[\d,.]+(?:\s*[-–]\s*[₹$€£]?\s*[\d,.]+)?", text)
+    eta_match = re.search(r"\b(\d+)\s*(?:min|mins|minute|minutes)\b", text, re.IGNORECASE)
+    if not ride_type and not price_match:
+        return None
+    price_text = price_match.group(0).replace(" ", "") if price_match else None
+    high_estimate = _price_to_number(price_text) if price_text else None
+    eta_minutes = int(eta_match.group(1)) if eta_match else None
+    return {
+        "ride_type": ride_type,
+        "price_text": price_text,
+        "low_estimate": None,
+        "high_estimate": high_estimate,
+        "eta_minutes": eta_minutes,
+    }
 
 
 def _select_best_live_estimate(estimates: list[dict]) -> dict | None:

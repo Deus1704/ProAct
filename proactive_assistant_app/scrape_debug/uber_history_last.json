@@ -1,0 +1,1265 @@
+{
+  "generated_at": "2026-04-01T12:32:12.797764",
+  "trip_count": 35,
+  "entries": [
+    {
+      "trip_id": "28d3683c-c9d7-494a-b136-0331a62462fd",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Sabarmati BG Railway Station",
+        "subtitle": "Mar 28 • 3:53 AM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/28d3683c-c9d7-494a-b136-0331a62462fd",
+        "ride_type_guess": null,
+        "dropoff_guess": "Sabarmati BG Railway Station",
+        "pickup_lat": 23.211176,
+        "pickup_lng": 72.6833
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Sabarmati BG Railway Station",
+        "ride_type": null,
+        "request_timestamp": "2026-03-28T03:53:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "d7aac4cb-7f51-4670-9b51-443bc8ff7698",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Sabarmati BG Railway Station",
+        "subtitle": "Mar 28 • 3:50 AM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/d7aac4cb-7f51-4670-9b51-443bc8ff7698",
+        "ride_type_guess": null,
+        "dropoff_guess": "Sabarmati BG Railway Station",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Sabarmati BG Railway Station",
+        "ride_type": null,
+        "request_timestamp": "2026-03-28T03:50:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "71535201-87b2-4b3e-8176-da9ffe1431c2",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "subtitle": "Mar 23 • 6:10 AM",
+        "description": "₹145.87",
+        "card_url": "https://riders.uber.com/trips/71535201-87b2-4b3e-8176-da9ffe1431c2",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Kudasan-Por Rd, Kudasan, Gujarat 382419, India",
+        "page_dropoff": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 145.87,
+        "page_duration_minutes": 20,
+        "page_distance_miles": 20.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹145.87",
+        "raw_distance_text": "20 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n6:17 AM, Monday March 23 2026 with ARJUNJI\nTrip rating\nTrip details\n\n11.79 kilometres\n\n20 minutes\n\n₹145.87\n\nCash\n\nView Receipt\nResend Receipt\nRequest Invoice\nRoute\nKudasan-Por Rd, Kudasan, Gujarat 382419, India\n\n6:17 AM\n\nIndian Institute of Technology, Palaj, Gujarat 382055, India\n\n6:38 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Kudasan-Por Rd, Kudasan, Gujarat 382419, India",
+        "dropoff_address": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2026-03-23T06:17:00",
+        "price": 145.87
+      }
+    },
+    {
+      "trip_id": "f715bb32-de60-47db-9d13-9cb45cebe98f",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "EME Officer's Mess",
+        "subtitle": "Mar 8 • 5:39 AM",
+        "description": "₹489.58",
+        "card_url": "https://riders.uber.com/trips/f715bb32-de60-47db-9d13-9cb45cebe98f",
+        "ride_type_guess": null,
+        "dropoff_guess": "EME Officer's Mess",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "ISBT Kashmiri Gate, Kashmere Gate, Delhi, 110006, India",
+        "page_dropoff": "Thimayya park, Baird Place, Delhi Cantonment, New Delhi, Delhi 110010, India",
+        "page_ride_type": null,
+        "page_price": 489.58,
+        "page_duration_minutes": 31,
+        "page_distance_miles": 31.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹489.58",
+        "raw_distance_text": "31 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n5:53 AM, Sunday March 8 2026 with SACHIN\nTrip rating\nTrip details\n\n21.12 kilometres\n\n31 minutes\n\n₹489.58\n\nCash\n\nView Receipt\nResend Receipt\nRequest Invoice\nRoute\nISBT Kashmiri Gate, Kashmere Gate, Delhi, 110006, India\n\n5:53 AM\n\nThimayya park, Baird Place, Delhi Cantonment, New Delhi, Delhi 110010, India\n\n6:24 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "ISBT Kashmiri Gate, Kashmere Gate, Delhi, 110006, India",
+        "dropoff_address": "Thimayya park, Baird Place, Delhi Cantonment, New Delhi, Delhi 110010, India",
+        "ride_type": null,
+        "request_timestamp": "2026-03-08T05:53:00",
+        "price": 489.58
+      }
+    },
+    {
+      "trip_id": "6d1084ee-f85c-4649-be56-37f823383498",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "Nov 27 • 1:33 AM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/6d1084ee-f85c-4649-be56-37f823383498",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Unnamed Road",
+        "ride_type": null,
+        "request_timestamp": "2025-11-27T01:33:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "94ac675a-dc6a-4723-867a-893ed5409cfb",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "Nov 27 • 1:22 AM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/94ac675a-dc6a-4723-867a-893ed5409cfb",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Unnamed Road",
+        "ride_type": null,
+        "request_timestamp": "2025-11-27T01:22:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "f9a9780e-dc6a-48ae-a164-a58cc34bb5c6",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "IIT Campus Road",
+        "subtitle": "Nov 7 • 8:59 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/f9a9780e-dc6a-48ae-a164-a58cc34bb5c6",
+        "ride_type_guess": null,
+        "dropoff_guess": "IIT Campus Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "IIT Campus Road",
+        "ride_type": null,
+        "request_timestamp": "2025-11-07T20:59:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "b1d12ab8-80e6-4a31-9f3b-e2fc29fed211",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "subtitle": "Oct 30 • 1:14 PM",
+        "description": "₹169.92",
+        "card_url": "https://riders.uber.com/trips/b1d12ab8-80e6-4a31-9f3b-e2fc29fed211",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "25 chiloda chokadi bus stand ni pase, Chiloda, Gujarat 382355, India",
+        "page_dropoff": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 169.92,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹169.92",
+        "raw_distance_text": null,
+        "raw_text_excerpt": "Uber\nYour Trip\n1:20 PM, Thursday October 30 2025 with KETANKUMAR\nTrip rating\nTrip details\n\n₹169.92\n\nCash\n\nSome invoices are ready — others need your attention\n\nOne invoice is ready, but we couldn't generate the other. Try again or contact Support if the issue persists. Learn more\n\nRequest Invoice\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\n25 chiloda chokadi bus stand ni pase, Chiloda, Gujarat 382355, India\n\n1:20 PM\n\nIndian Institute of Technology, Palaj, Gujarat 382055, India\n\n1:38 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "25 chiloda chokadi bus stand ni pase, Chiloda, Gujarat 382355, India",
+        "dropoff_address": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2025-10-30T13:20:00",
+        "price": 169.92
+      }
+    },
+    {
+      "trip_id": "6c76d68e-1a16-46f0-9493-7c91d0669f6b",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Radha Swami Road",
+        "subtitle": "Oct 29 • 3:21 AM",
+        "description": "₹389.93",
+        "card_url": "https://riders.uber.com/trips/6c76d68e-1a16-46f0-9493-7c91d0669f6b",
+        "ride_type_guess": null,
+        "dropoff_guess": "Radha Swami Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "IIT Campus Rd, Gujarat 382055, India",
+        "page_dropoff": "Radha Swami Rd, Ranip, Ahmedabad, Gujarat 382480, India",
+        "page_ride_type": null,
+        "page_price": 389.93,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹389.93",
+        "raw_distance_text": null,
+        "raw_text_excerpt": "Uber\nYour Trip\n4:20 AM, Wednesday October 29 2025 with HARDIKKUMAR\nTrip rating\nTrip details\n\n₹389.93\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nIIT Campus Rd, Gujarat 382055, India\n\n4:20 AM\n\nRadha Swami Rd, Ranip, Ahmedabad, Gujarat 382480, India\n\n4:56 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "IIT Campus Rd, Gujarat 382055, India",
+        "dropoff_address": "Radha Swami Rd, Ranip, Ahmedabad, Gujarat 382480, India",
+        "ride_type": null,
+        "request_timestamp": "2025-10-29T04:20:00",
+        "price": 389.93
+      }
+    },
+    {
+      "trip_id": "66dccddd-7a8a-4521-9edb-880f6337428e",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "subtitle": "Sep 26 • 3:41 AM",
+        "description": "₹479.74",
+        "card_url": "https://riders.uber.com/trips/66dccddd-7a8a-4521-9edb-880f6337428e",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "1, PRL Colony, Urban Chowk, Ahmedabad, Gujarat 380058, India",
+        "page_dropoff": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 479.74,
+        "page_duration_minutes": 50,
+        "page_distance_miles": 50.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹479.74",
+        "raw_distance_text": "50 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n3:54 AM, Friday September 26 2025 with Prakash\nRate trip\nTrip details\n\n38.50 kilometers\n\n50 minutes\n\n₹479.74\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\n1, PRL Colony, Urban Chowk, Ahmedabad, Gujarat 380058, India\n\n3:54 AM\n\nIndian Institute of Technology, Palaj, Gujarat 382055, India\n\n4:44 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "1, PRL Colony, Urban Chowk, Ahmedabad, Gujarat 380058, India",
+        "dropoff_address": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2025-09-26T03:54:00",
+        "price": 479.74
+      }
+    },
+    {
+      "trip_id": "179f4dba-8deb-42cd-95c1-cd22fd702129",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "May 2 • 9:39 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/179f4dba-8deb-42cd-95c1-cd22fd702129",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Unnamed Road",
+        "ride_type": null,
+        "request_timestamp": "2025-05-02T21:39:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "9350debe-52cd-4215-9922-4e6d1ebde34b",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "May 2 • 9:21 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/9350debe-52cd-4215-9922-4e6d1ebde34b",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Unnamed Road",
+        "ride_type": null,
+        "request_timestamp": "2025-05-02T21:21:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "be252075-beae-4b61-9488-f38f82c352e1",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "May 2 • 5:31 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/be252075-beae-4b61-9488-f38f82c352e1",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Unnamed Road",
+        "ride_type": null,
+        "request_timestamp": "2025-05-02T17:31:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "8e3928da-9320-4b39-8619-d0e1717bb412",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "704",
+        "subtitle": "Apr 20 • 11:08 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/8e3928da-9320-4b39-8619-d0e1717bb412",
+        "ride_type_guess": null,
+        "dropoff_guess": "704",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "704",
+        "ride_type": null,
+        "request_timestamp": "2025-04-20T23:08:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "540f888d-23cd-4883-a6e9-fd18a360d2db",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "subtitle": "Mar 31 • 11:15 PM",
+        "description": "₹198.32",
+        "card_url": "https://riders.uber.com/trips/540f888d-23cd-4883-a6e9-fd18a360d2db",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Radhe Infinity, 519, near Raksha Shakti Circle, Randesan, Gandhinagar, Gujarat 382426, India",
+        "page_dropoff": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 198.32,
+        "page_duration_minutes": 19,
+        "page_distance_miles": 19.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹198.32",
+        "raw_distance_text": "19 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n11:16 PM, Monday March 31 2025 with Ravat Chimanlal D\nTrip rating\nTrip details\n\n9.53 kilometers\n\n19 min\n\n₹198.32\n\nCash\n\nView Receipt\nResend Receipt\nRoute\nRadhe Infinity, 519, near Raksha Shakti Circle, Randesan, Gandhinagar, Gujarat 382426, India\n\n11:16 PM\n\nIndian Institute of Technology, Palaj, Gujarat 382055, India\n\n11:36 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Radhe Infinity, 519, near Raksha Shakti Circle, Randesan, Gandhinagar, Gujarat 382426, India",
+        "dropoff_address": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2025-03-31T23:16:00",
+        "price": 198.32
+      }
+    },
+    {
+      "trip_id": "881b195d-355d-48c1-b511-eba908845998",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Eat Punjab",
+        "subtitle": "Mar 31 • 10:01 PM",
+        "description": "₹50.00",
+        "card_url": "https://riders.uber.com/trips/881b195d-355d-48c1-b511-eba908845998",
+        "ride_type_guess": null,
+        "dropoff_guess": "Eat Punjab",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "BLOCK-B, Krushanakunj Apartment, B9, Sarkhej - Gandhinagar Hwy, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_dropoff": "Shop no, First Floor, Radhe Infinity, 103 & 104, Raksha Shakti Cir, Urjanagar -1, Randesan, Gandhinagar, Gujarat 382426, India",
+        "page_ride_type": null,
+        "page_price": 50.0,
+        "page_duration_minutes": 1,
+        "page_distance_miles": 1.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹50.00",
+        "raw_distance_text": "1 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n10:08 PM, Monday March 31 2025 with ANKITKUMAR\nRate trip\nTrip details\n\n0.58 kilometers\n\n1 min\n\n₹50.00\n\nCash\n\nView Receipt\nResend Receipt\nRoute\nBLOCK-B, Krushanakunj Apartment, B9, Sarkhej - Gandhinagar Hwy, Kudasan, Gandhinagar, Gujarat 382419, India\n\n10:08 PM\n\nShop no, First Floor, Radhe Infinity, 103 & 104, Raksha Shakti Cir, Urjanagar -1, Randesan, Gandhinagar, Gujarat 382426, India\n\n10:09 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "BLOCK-B, Krushanakunj Apartment, B9, Sarkhej - Gandhinagar Hwy, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "dropoff_address": "Shop no, First Floor, Radhe Infinity, 103 & 104, Raksha Shakti Cir, Urjanagar -1, Randesan, Gandhinagar, Gujarat 382426, India",
+        "ride_type": null,
+        "request_timestamp": "2025-03-31T22:08:00",
+        "price": 50.0
+      }
+    },
+    {
+      "trip_id": "7b374247-1b46-4e4c-b086-8cdcd0fdf4f7",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Rudra Enterprise",
+        "subtitle": "Mar 31 • 8:30 PM",
+        "description": "₹196.36",
+        "card_url": "https://riders.uber.com/trips/7b374247-1b46-4e4c-b086-8cdcd0fdf4f7",
+        "ride_type_guess": null,
+        "dropoff_guess": "Rudra Enterprise",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "IIT Campus Rd, Gujarat 382055, India",
+        "page_dropoff": "C119, KrishnaKunj Society, opp. CANARA BANK - DHOLESWAR MAHADEV (KUDASAN), Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_ride_type": null,
+        "page_price": 196.36,
+        "page_duration_minutes": 16,
+        "page_distance_miles": 16.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹196.36",
+        "raw_distance_text": "16 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n8:39 PM, Monday March 31 2025 with RANVIRSINH\nTrip rating\nTrip details\n\n10.74 kilometers\n\n16 min\n\n₹196.36\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nIIT Campus Rd, Gujarat 382055, India\n\n8:39 PM\n\nC119, KrishnaKunj Society, opp. CANARA BANK - DHOLESWAR MAHADEV (KUDASAN), Kudasan, Gandhinagar, Gujarat 382419, India\n\n8:56 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "IIT Campus Rd, Gujarat 382055, India",
+        "dropoff_address": "C119, KrishnaKunj Society, opp. CANARA BANK - DHOLESWAR MAHADEV (KUDASAN), Kudasan, Gandhinagar, Gujarat 382419, India",
+        "ride_type": null,
+        "request_timestamp": "2025-03-31T20:39:00",
+        "price": 196.36
+      }
+    },
+    {
+      "trip_id": "d1aa051e-228c-4a28-992e-1bd67f3fbdbc",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "Jan 2 • 2:02 PM",
+        "description": "₹315.00",
+        "card_url": "https://riders.uber.com/trips/d1aa051e-228c-4a28-992e-1bd67f3fbdbc",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Kalupur Railway Station Rd, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "page_dropoff": "Unnamed Road, Basan, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 315.0,
+        "page_duration_minutes": 52,
+        "page_distance_miles": 52.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹315.00",
+        "raw_distance_text": "52 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n2:04 PM, Thursday January 2 2025 with DHRUV\nRate trip\nTrip details\n\n30.93 kilometers\n\n52 min\n\n₹315.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nKalupur Railway Station Rd, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India\n\n2:04 PM\n\nUnnamed Road, Basan, Gujarat 382055, India\n\n3:07 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Kalupur Railway Station Rd, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "dropoff_address": "Unnamed Road, Basan, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2025-01-02T14:04:00",
+        "price": 315.0
+      }
+    },
+    {
+      "trip_id": "3cc04405-e50a-467d-8827-c8c22e8764a7",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Kalupur",
+        "subtitle": "Jan 2 • 2:01 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/3cc04405-e50a-467d-8827-c8c22e8764a7",
+        "ride_type_guess": null,
+        "dropoff_guess": "Kalupur",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Kalupur",
+        "ride_type": null,
+        "request_timestamp": "2026-01-02T14:01:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "4fdc4dc9-e315-4214-9cad-fcb979a2dea5",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Kalupur Railway Station Road",
+        "subtitle": "Dec 11 • 5:57 AM",
+        "description": "₹374.00",
+        "card_url": "https://riders.uber.com/trips/4fdc4dc9-e315-4214-9cad-fcb979a2dea5",
+        "ride_type_guess": null,
+        "dropoff_guess": "Kalupur Railway Station Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "IIT Campus Rd, Gujarat 382055, India",
+        "page_dropoff": "Kalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "page_ride_type": null,
+        "page_price": 374.0,
+        "page_duration_minutes": 39,
+        "page_distance_miles": 39.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹374.00",
+        "raw_distance_text": "39 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n6:19 AM, Wednesday December 11 2024 with RATHOD JASHPALSINH ASHWINSINH\nTrip rating\nTrip details\n\n27.90 kilometers\n\n39 min\n\n₹374.00\n\nCash\n\nSome invoices are ready — others need your attention\n\nOne invoice is ready, but we couldn't generate the other. Try again or contact Support if the issue persists. Learn more\n\nRequest Invoice\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nIIT Campus Rd, Gujarat 382055, India\n\n6:19 AM\n\nKalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India\n\n7:00 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "IIT Campus Rd, Gujarat 382055, India",
+        "dropoff_address": "Kalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "ride_type": null,
+        "request_timestamp": "2024-12-11T06:19:00",
+        "price": 374.0
+      }
+    },
+    {
+      "trip_id": "b5b3cd41-15ca-420a-9851-f6f105d054b5",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "IIT Campus Road",
+        "subtitle": "Oct 29 • 7:05 PM",
+        "description": "₹68.94 • Canceled",
+        "card_url": "https://riders.uber.com/trips/b5b3cd41-15ca-420a-9851-f6f105d054b5",
+        "ride_type_guess": null,
+        "dropoff_guess": "IIT Campus Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "IIT Campus Road",
+        "ride_type": null,
+        "request_timestamp": "2025-10-29T19:05:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "0667efcc-c2f5-4452-9d30-aff7165b34e3",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "IIT Campus Road",
+        "subtitle": "Oct 29 • 6:57 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/0667efcc-c2f5-4452-9d30-aff7165b34e3",
+        "ride_type_guess": null,
+        "dropoff_guess": "IIT Campus Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "IIT Campus Road",
+        "ride_type": null,
+        "request_timestamp": "2025-10-29T18:57:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "e1036b7f-9f71-4c9c-b03b-ea94e030c873",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Unnamed Road",
+        "subtitle": "Oct 29 • 6:53 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/e1036b7f-9f71-4c9c-b03b-ea94e030c873",
+        "ride_type_guess": null,
+        "dropoff_guess": "Unnamed Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Unnamed Road",
+        "ride_type": null,
+        "request_timestamp": "2025-10-29T18:53:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "de6ff1ac-d608-4b9b-b08f-83e53ddfcff4",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "IIT Campus Road",
+        "subtitle": "Oct 12 • 3:27 AM",
+        "description": "₹665.00",
+        "card_url": "https://riders.uber.com/trips/de6ff1ac-d608-4b9b-b08f-83e53ddfcff4",
+        "ride_type_guess": null,
+        "dropoff_guess": "IIT Campus Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Kalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "page_dropoff": "IIT Campus Rd, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 665.0,
+        "page_duration_minutes": 45,
+        "page_distance_miles": 45.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹665.00",
+        "raw_distance_text": "45 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n4:00 AM, Saturday October 12 2024 with HASUBHAI\nRate trip\nTrip details\n\n31.11 kilometers\n\n45 min\n\n₹665.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nKalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India\n\n4:00 AM\n\nIIT Campus Rd, Gujarat 382055, India\n\n4:45 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Kalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "dropoff_address": "IIT Campus Rd, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2024-10-12T04:00:00",
+        "price": 665.0
+      }
+    },
+    {
+      "trip_id": "7e65dfe9-205e-4dce-a603-4b18a7b2579f",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Kalupur Railway Station Road",
+        "subtitle": "Oct 5 • 1:02 AM",
+        "description": "₹454.00",
+        "card_url": "https://riders.uber.com/trips/7e65dfe9-205e-4dce-a603-4b18a7b2579f",
+        "ride_type_guess": null,
+        "dropoff_guess": "Kalupur Railway Station Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "IIT Campus Rd, Gujarat 382055, India",
+        "page_dropoff": "Kalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "page_ride_type": null,
+        "page_price": 454.0,
+        "page_duration_minutes": 42,
+        "page_distance_miles": 42.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹454.00",
+        "raw_distance_text": "42 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n1:39 AM, Saturday October 5 2024 with ASHOK\nRate trip\nTrip details\n\n30.26 kilometers\n\n42 min\n\n₹454.00\n\nCash\n\nSome invoices are ready — others need your attention\n\nOne invoice is ready, but we couldn't generate the other. Try again or contact Support if the issue persists. Learn more\n\nRequest Invoice\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nIIT Campus Rd, Gujarat 382055, India\n\n1:39 AM\n\nKalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India\n\n2:23 AM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "IIT Campus Rd, Gujarat 382055, India",
+        "dropoff_address": "Kalupur Railway Station Rd, Kapasia Bazar, Sakar Bazzar, Kalupur, Ahmedabad, Gujarat 380002, India",
+        "ride_type": null,
+        "request_timestamp": "2024-10-05T01:39:00",
+        "price": 454.0
+      }
+    },
+    {
+      "trip_id": "5f732c31-a1a2-4980-89b6-1ed73ba0b4c2",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Zudio - Shreeji Signature, Gandhinagar",
+        "subtitle": "Oct 1 • 7:12 PM",
+        "description": "₹153.00",
+        "card_url": "https://riders.uber.com/trips/5f732c31-a1a2-4980-89b6-1ed73ba0b4c2",
+        "ride_type_guess": null,
+        "dropoff_guess": "Zudio - Shreeji Signature, Gandhinagar",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "IIT Campus Rd, Gujarat 382055, India",
+        "page_dropoff": "Shreeji Signature, Near, Reliance Cross Rd, opp. Aashka Hospital, Sargasan, Gandhinagar, Gujarat 382419, India",
+        "page_ride_type": null,
+        "page_price": 153.0,
+        "page_duration_minutes": 27,
+        "page_distance_miles": 27.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹153.00",
+        "raw_distance_text": "27 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n7:19 PM, Tuesday October 1 2024 with Naresh\nRate trip\nTrip details\n\n11.58 kilometers\n\n27 min\n\n₹153.00\n\nCash\n\nSome invoices are ready — others need your attention\n\nOne invoice is ready, but we couldn't generate the other. Try again or contact Support if the issue persists. Learn more\n\nRequest Invoice\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nIIT Campus Rd, Gujarat 382055, India\n\n7:19 PM\n\nShreeji Signature, Near, Reliance Cross Rd, opp. Aashka Hospital, Sargasan, Gandhinagar, Gujarat 382419, India\n\n7:47 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "IIT Campus Rd, Gujarat 382055, India",
+        "dropoff_address": "Shreeji Signature, Near, Reliance Cross Rd, opp. Aashka Hospital, Sargasan, Gandhinagar, Gujarat 382419, India",
+        "ride_type": null,
+        "request_timestamp": "2024-10-01T19:19:00",
+        "price": 153.0
+      }
+    },
+    {
+      "trip_id": "c612bc0e-e881-4c3f-ad37-13020e16783f",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Samridhi Professional Services",
+        "subtitle": "Sep 14 • 10:46 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/c612bc0e-e881-4c3f-ad37-13020e16783f",
+        "ride_type_guess": null,
+        "dropoff_guess": "Samridhi Professional Services",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Samridhi Professional Services",
+        "ride_type": null,
+        "request_timestamp": "2025-09-14T22:46:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "6b175869-5120-46ba-bda5-95cea09a4242",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "IIT Campus Road",
+        "subtitle": "Sep 1 • 11:18 PM",
+        "description": "₹240.00",
+        "card_url": "https://riders.uber.com/trips/6b175869-5120-46ba-bda5-95cea09a4242",
+        "ride_type_guess": null,
+        "dropoff_guess": "IIT Campus Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Cloud99 restaurant, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_dropoff": "IIT Campus Rd, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 240.0,
+        "page_duration_minutes": 19,
+        "page_distance_miles": 19.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹240.00",
+        "raw_distance_text": "19 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n11:21 PM, Sunday September 1 2024 with PRAJAPATI DASRATHBHAI\nTrip rating\nTrip details\n\n11.83 kilometers\n\n19 min\n\n₹240.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nCloud99 restaurant, Kudasan, Gandhinagar, Gujarat 382419, India\n\n11:21 PM\n\nIIT Campus Rd, Gujarat 382055, India\n\n11:41 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Cloud99 restaurant, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "dropoff_address": "IIT Campus Rd, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2024-09-01T23:21:00",
+        "price": 240.0
+      }
+    },
+    {
+      "trip_id": "fc89c8e2-6b10-4e7b-a7cd-136c99b1e5eb",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Rustic Rays",
+        "subtitle": "Sep 1 • 9:14 PM",
+        "description": "₹230.00",
+        "card_url": "https://riders.uber.com/trips/fc89c8e2-6b10-4e7b-a7cd-136c99b1e5eb",
+        "ride_type_guess": null,
+        "dropoff_guess": "Rustic Rays",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Unnamed Road, Gujarat 382055, India",
+        "page_dropoff": "B-201,202,203, The Landmark, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_ride_type": null,
+        "page_price": 230.0,
+        "page_duration_minutes": 14,
+        "page_distance_miles": 14.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹230.00",
+        "raw_distance_text": "14 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n9:26 PM, Sunday September 1 2024 with PUNIT\nTrip rating\nTrip details\n\n10.45 kilometers\n\n14 min\n\n₹230.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nUnnamed Road, Gujarat 382055, India\n\n9:26 PM\n\nB-201,202,203, The Landmark, Kudasan, Gandhinagar, Gujarat 382419, India\n\n9:41 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Unnamed Road, Gujarat 382055, India",
+        "dropoff_address": "B-201,202,203, The Landmark, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "ride_type": null,
+        "request_timestamp": "2024-09-01T21:26:00",
+        "price": 230.0
+      }
+    },
+    {
+      "trip_id": "09e972f6-45ae-4b43-8f4f-7e687c1a030b",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Anilbhai Auto",
+        "subtitle": "Aug 22 • 10:56 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/09e972f6-45ae-4b43-8f4f-7e687c1a030b",
+        "ride_type_guess": null,
+        "dropoff_guess": "Anilbhai Auto",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Anilbhai Auto",
+        "ride_type": null,
+        "request_timestamp": "2025-08-22T22:56:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "2256a5f9-a882-41da-b0d4-d288cc1c0d99",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Taco Bell",
+        "subtitle": "Aug 22 • 9:14 PM",
+        "description": "₹149.00",
+        "card_url": "https://riders.uber.com/trips/2256a5f9-a882-41da-b0d4-d288cc1c0d99",
+        "ride_type_guess": null,
+        "dropoff_guess": "Taco Bell",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "IIT Campus Rd, Gujarat 382055, India",
+        "page_dropoff": "Shop No.19, Ground Floor, Pramukh Anand Orbit Mall, B/S, Pramukh Mastana, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_ride_type": null,
+        "page_price": 149.0,
+        "page_duration_minutes": 20,
+        "page_distance_miles": 20.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹149.00",
+        "raw_distance_text": "20 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n9:25 PM, Thursday August 22 2024 with KIRTIKUMAR\nTrip rating\nTrip details\n\n10.48 kilometers\n\n20 min\n\n₹149.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nIIT Campus Rd, Gujarat 382055, India\n\n9:25 PM\n\nShop No.19, Ground Floor, Pramukh Anand Orbit Mall, B/S, Pramukh Mastana, Kudasan, Gandhinagar, Gujarat 382419, India\n\n9:46 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "IIT Campus Rd, Gujarat 382055, India",
+        "dropoff_address": "Shop No.19, Ground Floor, Pramukh Anand Orbit Mall, B/S, Pramukh Mastana, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "ride_type": null,
+        "request_timestamp": "2024-08-22T21:25:00",
+        "price": 149.0
+      }
+    },
+    {
+      "trip_id": "764f605f-f2f3-4a09-887e-42b6aad144a2",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "IIT Campus Road",
+        "subtitle": "Aug 18 • 8:55 PM",
+        "description": "₹143.00",
+        "card_url": "https://riders.uber.com/trips/764f605f-f2f3-4a09-887e-42b6aad144a2",
+        "ride_type_guess": null,
+        "dropoff_guess": "IIT Campus Road",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Realince Chokdi Opp Radhe Sqare Kudadan Gandhinagar, 382421, Reliance Cross Rd, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_dropoff": "IIT Campus Rd, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 143.0,
+        "page_duration_minutes": 16,
+        "page_distance_miles": 16.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹143.00",
+        "raw_distance_text": "16 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n8:59 PM, Sunday August 18 2024 with VAGHELA\nTrip rating\nTrip details\n\n10.35 kilometers\n\n16 min\n\n₹143.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nRealince Chokdi Opp Radhe Sqare Kudadan Gandhinagar, 382421, Reliance Cross Rd, Kudasan, Gandhinagar, Gujarat 382419, India\n\n8:59 PM\n\nIIT Campus Rd, Gujarat 382055, India\n\n9:16 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Realince Chokdi Opp Radhe Sqare Kudadan Gandhinagar, 382421, Reliance Cross Rd, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "dropoff_address": "IIT Campus Rd, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2024-08-18T20:59:00",
+        "price": 143.0
+      }
+    },
+    {
+      "trip_id": "abb60466-6f52-46d4-888b-48ce2328bc7c",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Indian Institute Of Technology Library",
+        "subtitle": "May 1 • 9:33 PM",
+        "description": "₹0.00 • Unfulfilled",
+        "card_url": "https://riders.uber.com/trips/abb60466-6f52-46d4-888b-48ce2328bc7c",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Library",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Indian Institute Of Technology Library",
+        "ride_type": null,
+        "request_timestamp": "2025-05-01T21:33:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "34a43622-5dfd-4636-9b00-9543d9b8ddb4",
+      "status": "skipped_status",
+      "missing_fields": [
+        "skipped_status"
+      ],
+      "summary": {
+        "title": "Indian Institute Of Technology Library",
+        "subtitle": "May 1 • 9:30 PM",
+        "description": "₹0.00 • Canceled",
+        "card_url": "https://riders.uber.com/trips/34a43622-5dfd-4636-9b00-9543d9b8ddb4",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Library",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": null,
+        "page_dropoff": null,
+        "page_ride_type": null,
+        "page_price": null,
+        "page_duration_minutes": null,
+        "page_distance_miles": null,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": null,
+        "raw_distance_text": null,
+        "raw_text_excerpt": null
+      },
+      "merged": {
+        "pickup_address": null,
+        "dropoff_address": "Indian Institute Of Technology Library",
+        "ride_type": null,
+        "request_timestamp": "2025-05-01T21:30:00",
+        "price": null
+      }
+    },
+    {
+      "trip_id": "af1955e3-ddc8-40ea-9a65-a4f62aeecd9b",
+      "status": "ready",
+      "missing_fields": [],
+      "summary": {
+        "title": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "subtitle": "Apr 11 • 10:57 PM",
+        "description": "₹210.00",
+        "card_url": "https://riders.uber.com/trips/af1955e3-ddc8-40ea-9a65-a4f62aeecd9b",
+        "ride_type_guess": null,
+        "dropoff_guess": "Indian Institute Of Technology Gandhinagar (IIT Gandhinagar)",
+        "pickup_lat": null,
+        "pickup_lng": null
+      },
+      "detail": {
+        "page_pickup": "Cloud99 restaurant, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "page_dropoff": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "page_ride_type": null,
+        "page_price": 210.0,
+        "page_duration_minutes": 26,
+        "page_distance_miles": 26.0,
+        "raw_pickup_label": null,
+        "raw_dropoff_label": null,
+        "raw_price_text": "₹210.00",
+        "raw_distance_text": "26 mi",
+        "raw_text_excerpt": "Uber\nYour Trip\n11:07 PM, Thursday April 11 2024 with KISHANJI\nTrip rating\nTrip details\n\n10.69 kilometers\n\n26 min\n\n₹210.00\n\nCash\n\nView Receipt\nResend Receipt\nDownload Invoice\nRoute\nCloud99 restaurant, Kudasan, Gandhinagar, Gujarat 382419, India\n\n11:07 PM\n\nIndian Institute of Technology, Palaj, Gujarat 382055, India\n\n11:34 PM\n\nGet Help"
+      },
+      "merged": {
+        "pickup_address": "Cloud99 restaurant, Kudasan, Gandhinagar, Gujarat 382419, India",
+        "dropoff_address": "Indian Institute of Technology, Palaj, Gujarat 382055, India",
+        "ride_type": null,
+        "request_timestamp": "2024-04-11T23:07:00",
+        "price": 210.0
+      }
+    }
+  ]
+}

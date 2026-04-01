@@ -1,87 +1,279 @@
-"""FastAPI application: serves frontend and provider integrations."""
+"""FastAPI app for the deterministic proactive assistant backend."""
 
+from __future__ import annotations
+
+import asyncio
 import base64
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from typing import Any, Optional
 
-from fastapi import FastAPI, Query, Request
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from pydantic import BaseModel
-from groq import Groq
-from dotenv import load_dotenv
 import requests
+from collections import defaultdict
 
 from . import database as db
 from . import food_client
-from . import food_suggestion_engine
-from . import ola_client
-from . import uber_client
 from . import suggestion_engine
+from . import uber_client
+from .data_fetcher import get_scraper_health
+from .pattern_engine import PatternEngine
+from .suggestion_builder import SuggestionBuilder
+from .trigger_watcher import SuggestionBroadcaster, TriggerWatcher
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 load_dotenv()
 
-app = FastAPI(title="Proactive Ride Assistant", version="1.0.0")
-
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+AUTH_COOKIE_NAME = "proactive_assistant_auth"
+
+pattern_engine = PatternEngine()
+suggestion_builder = SuggestionBuilder()
+broadcaster = SuggestionBroadcaster()
+trigger_watcher = TriggerWatcher(
+    pattern_engine=pattern_engine,
+    suggestion_builder=suggestion_builder,
+    broadcaster=broadcaster,
+)
+
+FREE_GEOCODE_CACHE: dict[str, tuple[float, float] | None] = {}
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    db.init_db()
+    pattern_engine.run_full_extraction()
+    await trigger_watcher.start()
+    try:
+        yield
+    finally:
+        await trigger_watcher.stop()
+        await food_client.close_browser()
+        await uber_client.close_browser()
+
+
+app = FastAPI(title="Proactive Assistant", version="2.0.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-AUTH_COOKIE_NAME = "proactive_assistant_auth"
-IST = timezone(timedelta(hours=5, minutes=30))
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-
-
-# ── Startup / Shutdown ────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-def startup():
-    db.init_db()
-    log.info("Database initialized.")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    await food_client.close_browser()
-    await uber_client.close_browser()
-    log.info("Browser closed.")
-
-
-# ── Frontend ──────────────────────────────────────────────────────────────────
 
 def _login_path() -> str:
     return "/login"
 
 
-def _encode_auth_cookie(profile: dict) -> str:
+def _error_response(message: str, status_code: int = 400) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"error": message})
+
+
+def _rounded_live_context_key(lat: float, lng: float) -> str:
+    return f"live_context_{lat:.2f}_{lng:.2f}"
+
+
+def _parse_live_context_cache(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+
+    data = raw.get("data")
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(data, dict):
+        return None
+
+    fetched_at = str(raw.get("fetched_at") or data.get("fetched_at") or "").strip()
+    if not fetched_at:
+        return None
+
+    try:
+        fetched_dt = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    age_minutes = (db.utc_now() - fetched_dt).total_seconds() / 60.0
+    if age_minutes > 10:
+        return None
+
+    return data
+
+
+def _weather_label(weather_code: Any) -> str | None:
+    try:
+        code = int(weather_code)
+    except (TypeError, ValueError):
+        return None
+
+    if code == 0:
+        return "Clear sky"
+    if 1 <= code <= 3:
+        return "Partly cloudy"
+    if code in (45, 48):
+        return "Fog"
+    if 51 <= code <= 67:
+        return "Rain"
+    if 71 <= code <= 77:
+        return "Snow"
+    if 80 <= code <= 82:
+        return "Showers"
+    if code == 95:
+        return "Thunderstorm"
+    return None
+
+
+def _air_quality_label(aqi: Any) -> str | None:
+    try:
+        value = float(aqi)
+    except (TypeError, ValueError):
+        return None
+
+    if value <= 20:
+        return "Good"
+    if value <= 40:
+        return "Fair"
+    if value <= 60:
+        return "Moderate"
+    if value <= 80:
+        return "Poor"
+    if value <= 100:
+        return "Very Poor"
+    return "Hazardous"
+
+
+def _cache_live_context_payload(lat: float, lng: float) -> dict[str, Any] | None:
+    cached = db.get_scraper_cache(_rounded_live_context_key(lat, lng))
+    return _parse_live_context_cache(cached)
+
+
+async def _request_json(url: str, *, params: dict[str, Any], headers: dict[str, str] | None = None, timeout: int = 6) -> dict[str, Any]:
+    def _sync_request() -> dict[str, Any]:
+        response = requests.get(url, params=params, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Expected JSON object")
+        return data
+
+    return await asyncio.to_thread(_sync_request)
+
+
+async def _fetch_weather_context(lat: float, lng: float, cache: dict[str, Any] | None) -> dict[str, Any]:
+    try:
+        payload = await _request_json(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lng,
+                "current": "temperature_2m,weather_code,windspeed_10m",
+            },
+        )
+        current = payload.get("current") or {}
+        temperature = current.get("temperature_2m")
+        weather_code = current.get("weathercode", current.get("weather_code"))
+        wind_speed = current.get("windspeed_10m", current.get("wind_speed_10m"))
+        return {
+            "temperature": None if temperature is None else f"{round(float(temperature))}°C",
+            "conditions": _weather_label(weather_code),
+            "wind_speed": None if wind_speed is None else f"{round(float(wind_speed))} km/h",
+            "success": True,
+        }
+    except Exception as exc:
+        log.warning("Weather lookup failed for %.2f, %.2f: %s", lat, lng, exc)
+        if cache:
+            return {
+                "temperature": cache.get("temperature"),
+                "conditions": cache.get("conditions"),
+                "wind_speed": cache.get("wind_speed"),
+                "success": False,
+            }
+        return {"temperature": None, "conditions": None, "wind_speed": None, "success": False}
+
+
+async def _fetch_air_quality_context(lat: float, lng: float, cache: dict[str, Any] | None) -> dict[str, Any]:
+    try:
+        payload = await _request_json(
+            "https://air-quality-api.open-meteo.com/v1/air-quality",
+            params={
+                "latitude": lat,
+                "longitude": lng,
+                "current": "european_aqi,pm2_5",
+            },
+        )
+        current = payload.get("current") or {}
+        aqi_value = current.get("european_aqi")
+        return {
+            "air_quality": _air_quality_label(aqi_value),
+            "aqi_value": None if aqi_value is None else int(round(float(aqi_value))),
+            "success": True,
+        }
+    except Exception as exc:
+        log.warning("Air quality lookup failed for %.2f, %.2f: %s", lat, lng, exc)
+        if cache:
+            return {
+                "air_quality": cache.get("air_quality"),
+                "aqi_value": cache.get("aqi_value"),
+                "success": False,
+            }
+        return {"air_quality": None, "aqi_value": None, "success": False}
+
+
+async def _fetch_geocode_context(lat: float, lng: float, cache: dict[str, Any] | None) -> dict[str, Any]:
+    try:
+        payload = await _request_json(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={
+                "lat": lat,
+                "lon": lng,
+                "format": "json",
+            },
+            headers={"User-Agent": "ProactiveAssistant/1.0"},
+        )
+        address = payload.get("address") or {}
+        locality = address.get("city") or address.get("town") or address.get("suburb")
+        state_name = address.get("state")
+        position = ", ".join(part for part in [locality, state_name] if part)
+        return {
+            "position": position or None,
+            "success": True,
+        }
+    except Exception as exc:
+        log.warning("Reverse geocode failed for %.2f, %.2f: %s", lat, lng, exc)
+        if cache:
+            return {
+                "position": cache.get("position"),
+                "success": False,
+            }
+        return {"position": None, "success": False}
+
+
+def _encode_auth_cookie(profile: dict[str, Any]) -> str:
     payload = json.dumps(profile, separators=(",", ":")).encode("utf-8")
     return base64.urlsafe_b64encode(payload).decode("ascii")
 
 
-def _decode_auth_cookie(raw_cookie: Optional[str]) -> Optional[dict]:
+def _decode_auth_cookie(raw_cookie: Optional[str]) -> Optional[dict[str, Any]]:
     if not raw_cookie:
         return None
-
     try:
         padded = raw_cookie + "=" * (-len(raw_cookie) % 4)
         decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
         profile = json.loads(decoded)
-    except (ValueError, TypeError, json.JSONDecodeError):
+    except Exception:
         return None
-
     if not isinstance(profile, dict):
         return None
-
     identifier = str(profile.get("identifier") or "").strip()
     if not identifier:
         return None
-
     return {
         "identifier": identifier,
         "firstName": str(profile.get("firstName") or "").strip(),
@@ -89,11 +281,11 @@ def _decode_auth_cookie(raw_cookie: Optional[str]) -> Optional[dict]:
     }
 
 
-def _auth_profile_from_request(request: Request) -> Optional[dict]:
+def _auth_profile_from_request(request: Request) -> Optional[dict[str, Any]]:
     return _decode_auth_cookie(request.cookies.get(AUTH_COOKIE_NAME))
 
 
-def _set_auth_cookie(response: JSONResponse, profile: dict) -> None:
+def _set_auth_cookie(response: JSONResponse, profile: dict[str, Any]) -> None:
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=_encode_auth_cookie(profile),
@@ -105,14 +297,78 @@ def _set_auth_cookie(response: JSONResponse, profile: dict) -> None:
     )
 
 
+def _pending_suggestion_response(suggestion: dict[str, Any] | None) -> dict[str, Any]:
+    if not suggestion:
+        return {"suggestion": None}
+    return {
+        "suggestion": {
+            "id": suggestion["id"],
+            "type": suggestion["type"],
+            "reason_string": suggestion["reason_string"],
+            "shown_at": suggestion["shown_at"],
+            "outcome": suggestion["outcome"],
+            "payload": suggestion["payload"],
+        }
+    }
+
+
+def _serialize_ride_row(row: dict[str, Any]) -> dict[str, Any]:
+    platform = row.get("platform") or row.get("source_platform") or "uber"
+    return {
+        **row,
+        "source_platform": platform,
+        "request_timestamp": row.get("request_timestamp") or row.get("departure_time"),
+        "pickup_address": row.get("pickup_address") or row.get("origin_label"),
+        "dropoff_address": row.get("dropoff_address") or row.get("dest_label"),
+        "price": row.get("price") if row.get("price") is not None else row.get("fare"),
+        "pickup_lat": row.get("pickup_lat") if row.get("pickup_lat") is not None else row.get("origin_lat"),
+        "pickup_lng": row.get("pickup_lng") if row.get("pickup_lng") is not None else row.get("origin_lng"),
+        "dropoff_lat": row.get("dropoff_lat") if row.get("dropoff_lat") is not None else row.get("dest_lat"),
+        "dropoff_lng": row.get("dropoff_lng") if row.get("dropoff_lng") is not None else row.get("dest_lng"),
+    }
+
+
+class LoginPayload(BaseModel):
+    identifier: str
+    full_name: str = ""
+
+
+class GoogleAuthPayload(BaseModel):
+    credential: str
+
+
+class ClickPayload(BaseModel):
+    x: int
+    y: int
+
+
+class TypePayload(BaseModel):
+    text: str
+
+
+class KeyPayload(BaseModel):
+    key: str
+
+
+class ConfirmSuggestionPayload(BaseModel):
+    edited: bool = False
+    edits: dict[str, Any] | None = None
+
+
+class LegacyRideActionPayload(BaseModel):
+    route_key: str | None = None
+    pickup: str | None = None
+    dropoff: str | None = None
+    ride_type: str | None = None
+    reason: str | None = None
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     if _auth_profile_from_request(request):
         return RedirectResponse(url="/", status_code=303)
-
-    login_path = os.path.join(STATIC_DIR, "login.html")
-    with open(login_path, "r") as f:
-        return HTMLResponse(content=f.read())
+    with open(os.path.join(STATIC_DIR, "login.html"), "r", encoding="utf-8") as handle:
+        return HTMLResponse(content=handle.read())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -121,224 +377,13 @@ def login_page(request: Request):
 def serve_index(request: Request):
     if not _auth_profile_from_request(request):
         return RedirectResponse(url=_login_path(), status_code=303)
-
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    with open(index_path, "r") as f:
-        return HTMLResponse(content=f.read())
+    with open(os.path.join(STATIC_DIR, "index.html"), "r", encoding="utf-8") as handle:
+        return HTMLResponse(content=handle.read())
 
 
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_page():
-    return HTMLResponse(content="""<!DOCTYPE html>
-<html><head><title>Privacy Policy</title></head><body>
-<h1>Privacy Policy</h1>
-<p>This is a local development application for a proactive ride assistant.
-No user data is shared with third parties. All data is stored locally in SQLite.</p>
-</body></html>""")
-
-
-# ── Health ────────────────────────────────────────────────────────────────────
-
-@app.get("/api/health")
-def health():
-    return {
-        "status": "ok",
-        "ride_count": db.get_ride_count(),
-        "food_order_count": db.get_food_order_count(),
-        "uber_connected": db.get_setting("uber_connected") == "true",
-        "ola_connected": db.get_setting("ola_connected") == "true",
-        "swiggy_connected": db.get_setting("swiggy_connected") == "true",
-        "zomato_connected": db.get_setting("zomato_connected") == "true",
-    }
-
-
-def _error_response(message: str, status_code: int = 400) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"error": message})
-
-
-async def _enrich_ride_suggestion_with_live_data(suggestion: dict | None, lat: float | None, lng: float | None) -> dict | None:
-    if not suggestion:
-        return None
-
-    pickup_lat = lat if lat is not None else suggestion.get("pickup_lat")
-    pickup_lng = lng if lng is not None else suggestion.get("pickup_lng")
-    dropoff_lat = suggestion.get("dropoff_lat")
-    dropoff_lng = suggestion.get("dropoff_lng")
-
-    if None in (pickup_lat, pickup_lng, dropoff_lat, dropoff_lng):
-        return suggestion
-
-    try:
-        live_data = await uber_client.scrape_live_estimates(
-            float(pickup_lat),
-            float(pickup_lng),
-            float(dropoff_lat),
-            float(dropoff_lng),
-        )
-    except Exception as exc:
-        log.warning("Ride live-data enrichment failed: %s", exc)
-        return suggestion
-
-    best_estimate = (live_data or {}).get("best_estimate") or {}
-    if not best_estimate:
-        return suggestion
-
-    enriched = dict(suggestion)
-    enriched["live_data"] = True
-    enriched["live_context"] = {
-        "source": "uber",
-        "estimate_count": len((live_data or {}).get("estimates") or []),
-    }
-
-    if best_estimate.get("ride_type"):
-        enriched["ride_type"] = best_estimate["ride_type"]
-    if best_estimate.get("price_text"):
-        enriched["estimated_price"] = best_estimate["price_text"]
-    if best_estimate.get("low_estimate") is not None or best_estimate.get("high_estimate") is not None:
-        low = best_estimate.get("low_estimate")
-        high = best_estimate.get("high_estimate")
-        if low is not None and high is not None:
-            enriched["price_range"] = {"low": low, "high": high}
-            enriched["estimated_price_value"] = high
-        else:
-            enriched["estimated_price_value"] = high if high is not None else low
-    if best_estimate.get("eta_minutes") is not None:
-        enriched["eta_minutes"] = best_estimate["eta_minutes"]
-
-    if enriched.get("eta_minutes") is not None and enriched.get("duration_minutes") is not None:
-        delta = int(round(float(enriched["eta_minutes"]) - float(enriched["duration_minutes"])))
-        enriched["traffic_delta_minutes"] = max(delta, 0)
-
-    return enriched
-
-
-async def _enrich_food_suggestion_with_live_data(
-    suggestion: dict | None,
-    lat: float | None,
-    lng: float | None,
-) -> dict | None:
-    if not suggestion or suggestion.get("is_fallback"):
-        return suggestion
-
-    try:
-        live_match = await food_client.get_live_match_for_suggestion(
-            restaurant_name=suggestion.get("restaurant_name") or "",
-            item_name=suggestion.get("item_name"),
-            lat=lat,
-            lng=lng,
-        )
-    except Exception as exc:
-        log.warning("Food live-data enrichment failed: %s", exc)
-        return suggestion
-
-    if not live_match:
-        return suggestion
-
-    enriched = dict(suggestion)
-    enriched["live_data"] = True
-    enriched["live_context"] = {
-        "source": "swiggy",
-        "match_score": live_match.get("match_score"),
-    }
-    enriched["restaurant_name"] = live_match.get("restaurant_name") or enriched.get("restaurant_name")
-    enriched["item_name"] = live_match.get("item_name") or enriched.get("item_name")
-    if live_match.get("item_price") is not None:
-        enriched["estimated_price"] = live_match["item_price"]
-    elif live_match.get("cost_for_two"):
-        enriched["estimated_price_label"] = live_match["cost_for_two"]
-    if live_match.get("delivery_time_mins") is not None:
-        enriched["eta_minutes"] = live_match["delivery_time_mins"]
-    if live_match.get("deeplink"):
-        enriched["deeplink"] = live_match["deeplink"]
-    if live_match.get("offer"):
-        enriched["offer"] = live_match["offer"]
-    if live_match.get("image_url"):
-        enriched["image_url"] = live_match["image_url"]
-    if live_match.get("is_open") is not None:
-        enriched["is_open"] = live_match["is_open"]
-
-    return enriched
-
-
-class LoginPayload(BaseModel):
-    identifier: str
-    full_name: str = ""
-
-
-class GoogleLoginPayload(BaseModel):
-    credential: str
-
-
-def _time_of_day(dt: datetime) -> str:
-    hour = dt.hour
-    if hour < 12:
-        return "morning"
-    if hour < 17:
-        return "afternoon"
-    return "evening"
-
-
-def _build_fallback_greeting(profile: Optional[dict]) -> dict:
-    now = datetime.now(IST)
-    weekday = now.strftime("%A")
-    time_of_day = _time_of_day(now)
-    first_name = (profile or {}).get("firstName") or "there"
-    title_time = time_of_day.title()
-    return {
-        "heading": f"Good {time_of_day}, {first_name}",
-        "home_label": f"Proactive {title_time} Brief",
-        "home_summary": f"Your proactive assistant has mapped the next best ride and dining moves for the {time_of_day}.",
-        "food_label": f"{weekday} {title_time} Curation",
-        "time_of_day": time_of_day,
-        "weekday": weekday,
-        "model": None,
-        "source": "fallback",
-    }
-
-
-def _build_llm_greeting(profile: Optional[dict]) -> dict:
-    fallback = _build_fallback_greeting(profile)
-    if not GROQ_API_KEY:
-        return fallback
-
-    now = datetime.now(IST)
-    weekday = now.strftime("%A")
-    time_of_day = _time_of_day(now)
-    first_name = (profile or {}).get("firstName") or "there"
-    prompt = (
-        "Return strict JSON with keys heading, home_label, home_summary, food_label. "
-        "Write concise premium UI copy for a proactive assistant app. "
-        f"It is currently {weekday} {time_of_day}. "
-        f"The user's first name is {first_name!r}. "
-        "Make the wording time-aware, natural, and brief."
-    )
-
-    try:
-        client = Groq(api_key=GROQ_API_KEY)
-        completion = client.chat.completions.create(
-            model=GROQ_MODEL,
-            temperature=0.3,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You are a UX copywriter. Respond with valid JSON only."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        content = completion.choices[0].message.content or "{}"
-        payload = json.loads(content)
-        return {
-            "heading": str(payload.get("heading") or fallback["heading"]),
-            "home_label": str(payload.get("home_label") or fallback["home_label"]),
-            "home_summary": str(payload.get("home_summary") or fallback["home_summary"]),
-            "food_label": str(payload.get("food_label") or fallback["food_label"]),
-            "time_of_day": time_of_day,
-            "weekday": weekday,
-            "model": GROQ_MODEL,
-            "source": "llm",
-        }
-    except Exception as exc:
-        log.warning("Greeting LLM call failed, using fallback: %s", exc)
-        return fallback
+    return HTMLResponse("<html><body><h1>Privacy Policy</h1><p>Local-only assistant data stays in SQLite.</p></body></html>")
 
 
 @app.get("/api/auth/status")
@@ -347,214 +392,61 @@ def auth_status(request: Request):
     return {"authenticated": bool(profile), "profile": profile}
 
 
-@app.get("/api/auth/google/config")
-def google_auth_config():
-    return {
-        "enabled": bool(GOOGLE_CLIENT_ID),
-        "client_id": GOOGLE_CLIENT_ID if GOOGLE_CLIENT_ID else None,
-    }
-
-
-@app.get("/api/ui/greeting")
-def ui_greeting(request: Request):
-    profile = _auth_profile_from_request(request)
-    return _build_llm_greeting(profile)
-
-
-def _aqi_label(aqi: Optional[float]) -> str:
-    if aqi is None:
-        return "Unavailable"
-    if aqi <= 50:
-        return "Good"
-    if aqi <= 100:
-        return "Moderate"
-    if aqi <= 150:
-        return "Unhealthy for sensitive groups"
-    if aqi <= 200:
-        return "Unhealthy"
-    if aqi <= 300:
-        return "Very unhealthy"
-    return "Hazardous"
-
-
-def _weather_summary(code: Optional[int], temp_c: Optional[float]) -> str:
-    code_map = {
-        0: "Clear skies",
-        1: "Mostly clear",
-        2: "Partly cloudy",
-        3: "Overcast",
-        45: "Foggy",
-        48: "Foggy",
-        51: "Light drizzle",
-        61: "Light rain",
-        63: "Rain",
-        65: "Heavy rain",
-        71: "Light snow",
-        80: "Rain showers",
-        95: "Thunderstorms",
-    }
-    weather = code_map.get(code, "Conditions steady")
-    if temp_c is None:
-        return weather
-    return f"{weather}, {round(temp_c)}C"
-
-
-@app.get("/api/context/live")
-def live_context(
-    lat: float = Query(...),
-    lng: float = Query(...),
-):
-    headers = {"User-Agent": "proactive-assistant/1.0 (local-development)"}
-    location_name = None
-
-    try:
-        geo_resp = requests.get(
-            "https://nominatim.openstreetmap.org/reverse",
-            params={
-                "format": "jsonv2",
-                "lat": lat,
-                "lon": lng,
-                "zoom": 14,
-                "addressdetails": 1,
-            },
-            headers=headers,
-            timeout=8,
-        )
-        geo_resp.raise_for_status()
-        geo_data = geo_resp.json()
-        address = geo_data.get("address") or {}
-        location_name = (
-            address.get("suburb")
-            or address.get("neighbourhood")
-            or address.get("city_district")
-            or address.get("city")
-            or address.get("town")
-            or address.get("state")
-        )
-        if not location_name and geo_data.get("display_name"):
-            location_name = str(geo_data["display_name"]).split(",")[0].strip()
-    except Exception as exc:
-        log.warning("Reverse geocoding failed: %s", exc)
-
-    weather_data = {}
-    try:
-        weather_resp = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": lat,
-                "longitude": lng,
-                "current": "temperature_2m,apparent_temperature,weather_code",
-                "timezone": "auto",
-            },
-            timeout=8,
-        )
-        weather_resp.raise_for_status()
-        weather_data = weather_resp.json().get("current", {}) or {}
-    except Exception as exc:
-        log.warning("Weather lookup failed: %s", exc)
-
-    air_data = {}
-    try:
-        air_resp = requests.get(
-            "https://air-quality-api.open-meteo.com/v1/air-quality",
-            params={
-                "latitude": lat,
-                "longitude": lng,
-                "current": "us_aqi",
-                "timezone": "auto",
-            },
-            timeout=8,
-        )
-        air_resp.raise_for_status()
-        air_data = air_resp.json().get("current", {}) or {}
-    except Exception as exc:
-        log.warning("Air quality lookup failed: %s", exc)
-
-    temp_c = weather_data.get("temperature_2m")
-    feels_like_c = weather_data.get("apparent_temperature")
-    weather_code = weather_data.get("weather_code")
-    aqi = air_data.get("us_aqi")
-
-    return {
-        "location": location_name or "Current area",
-        "temperature_c": temp_c,
-        "feels_like_c": feels_like_c,
-        "weather_code": weather_code,
-        "weather_summary": _weather_summary(weather_code, temp_c),
-        "aqi": aqi,
-        "aqi_label": _aqi_label(aqi),
-        "lat": lat,
-        "lng": lng,
-    }
-
-
 @app.post("/api/auth/login")
 def auth_login(payload: LoginPayload):
     identifier = payload.identifier.strip()
-    full_name = payload.full_name.strip()
     if not identifier:
         return _error_response("Email or phone number is required.")
-
-    first_name = full_name.split()[0] if full_name else identifier.split("@")[0].split(".")[0].split("_")[0].split("-")[0]
-    first_name = (first_name or "there").strip()
-    first_name = first_name[:1].upper() + first_name[1:]
-
-    profile = {
-        "identifier": identifier,
-        "firstName": first_name,
-        "fullName": full_name,
-    }
-
+    full_name = payload.full_name.strip()
+    first_name = full_name.split()[0] if full_name else identifier.split("@")[0].split(".")[0]
+    profile = {"identifier": identifier, "firstName": first_name.title() or "There", "fullName": full_name}
     response = JSONResponse(content={"ok": True, "redirect_to": "/", "profile": profile})
     _set_auth_cookie(response, profile)
     return response
 
 
+@app.get("/api/auth/google/config")
+def auth_google_config():
+    client_id = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+    return {"enabled": bool(client_id), "client_id": client_id}
+
+
 @app.post("/api/auth/google")
-def auth_google(payload: GoogleLoginPayload):
-    credential = (payload.credential or "").strip()
-    if not GOOGLE_CLIENT_ID:
-        return _error_response("Google sign-in is not configured.", status_code=503)
+def auth_google(payload: GoogleAuthPayload):
+    credential = payload.credential.strip()
     if not credential:
-        return _error_response("Missing Google credential.")
+        return _error_response("Google credential is required.")
+
+    client_id = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+    if not client_id:
+        return _error_response("Google sign-in is not configured.", status_code=503)
 
     try:
-        response = requests.get(
-            "https://oauth2.googleapis.com/tokeninfo",
-            params={"id_token": credential},
-            timeout=10,
+        token_info = id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            client_id,
         )
-        response.raise_for_status()
-        token_data = response.json()
-    except Exception as exc:
-        log.warning("Google token verification failed: %s", exc)
-        return _error_response("Unable to verify Google sign-in.", status_code=401)
+    except ValueError:
+        return _error_response("Invalid Google credential.", status_code=401)
 
-    if token_data.get("aud") != GOOGLE_CLIENT_ID:
-        return _error_response("Google sign-in client mismatch.", status_code=401)
-    if token_data.get("email_verified") not in ("true", True):
-        return _error_response("Google account email is not verified.", status_code=401)
-
-    identifier = str(token_data.get("email") or "").strip()
+    identifier = str(token_info.get("email") or token_info.get("sub") or "").strip()
     if not identifier:
-        return _error_response("Google account email is unavailable.", status_code=401)
+        return _error_response("Unable to read Google profile.", status_code=401)
 
-    full_name = str(token_data.get("name") or "").strip()
-    first_name = str(token_data.get("given_name") or "").strip()
+    full_name = str(token_info.get("name") or "").strip()
+    first_name = str(token_info.get("given_name") or "").strip()
     if not first_name:
-        first_name = full_name.split()[0] if full_name else identifier.split("@")[0].split(".")[0].split("_")[0].split("-")[0]
-    first_name = (first_name or "there").strip()
-    first_name = first_name[:1].upper() + first_name[1:]
+        first_name = (full_name.split()[0] if full_name else identifier.split("@")[0].split(".")[0]).title() or "There"
 
     profile = {
         "identifier": identifier,
         "firstName": first_name,
         "fullName": full_name,
     }
-
-    result = JSONResponse(content={"ok": True, "redirect_to": "/", "profile": profile})
-    _set_auth_cookie(result, profile)
-    return result
+    response = JSONResponse(content={"ok": True, "redirect_to": "/", "profile": profile})
+    _set_auth_cookie(response, profile)
+    return response
 
 
 @app.post("/api/auth/logout")
@@ -564,7 +456,58 @@ def auth_logout():
     return response
 
 
-# ── Uber Login (Browser-based with screenshot streaming) ─────────────────────
+@app.get("/api/context/live")
+async def get_live_context(
+    lat: float | None = Query(None),
+    lng: float | None = Query(None),
+):
+    if lat is None or lng is None:
+        return _error_response("lat and lng required", status_code=400)
+
+    if float(lat) == 0.0 and float(lng) == 0.0:
+        return _error_response("invalid coordinates", status_code=400)
+
+    cache_key = _rounded_live_context_key(float(lat), float(lng))
+    cache_row = db.get_scraper_cache(cache_key)
+    cache = _parse_live_context_cache(cache_row)
+
+    weather_task = _fetch_weather_context(float(lat), float(lng), cache)
+    air_task = _fetch_air_quality_context(float(lat), float(lng), cache)
+    geo_task = _fetch_geocode_context(float(lat), float(lng), cache)
+
+    weather, air_quality, geocode = await asyncio.gather(weather_task, air_task, geo_task)
+
+    sources = {
+        "weather": bool(weather.get("success")),
+        "air_quality": bool(air_quality.get("success")),
+        "geocode": bool(geocode.get("success")),
+    }
+    has_live_success = any(sources.values())
+    fetched_at = db.utc_now().isoformat()
+    if not has_live_success and cache_row and cache_row.get("fetched_at"):
+        fetched_at = str(cache_row["fetched_at"])
+
+    response = {
+        "position": geocode.get("position"),
+        "temperature": weather.get("temperature"),
+        "conditions": weather.get("conditions"),
+        "air_quality": air_quality.get("air_quality"),
+        "aqi_value": air_quality.get("aqi_value"),
+        "wind_speed": weather.get("wind_speed"),
+        "fetched_at": fetched_at,
+        "sources": sources,
+    }
+
+    if has_live_success:
+        db.upsert_scraper_cache(
+            cache_key,
+            response,
+            fetched_at=db.utc_now(),
+            is_stale=False,
+        )
+
+    return response
+
 
 @app.get("/api/uber/status")
 def uber_status():
@@ -573,214 +516,39 @@ def uber_status():
 
 @app.post("/api/uber/login")
 async def uber_login():
-    """Start headless browser login — returns first screenshot."""
     return await uber_client.start_login()
 
 
 @app.get("/api/uber/screenshot")
 async def uber_screenshot():
-    """Get current screenshot of the login page."""
     return await uber_client.get_screenshot()
-
-
-class ClickPayload(BaseModel):
-    x: int
-    y: int
 
 
 @app.post("/api/uber/click")
 async def uber_click(payload: ClickPayload):
-    """Click at coordinates on the login page."""
     return await uber_client.browser_click(payload.x, payload.y)
-
-
-class TypePayload(BaseModel):
-    text: str
 
 
 @app.post("/api/uber/type")
 async def uber_type(payload: TypePayload):
-    """Type text into the focused input on the login page."""
     return await uber_client.browser_type(payload.text)
-
-
-class KeyPayload(BaseModel):
-    key: str
 
 
 @app.post("/api/uber/key")
 async def uber_key(payload: KeyPayload):
-    """Press a special key (Enter, Tab, Backspace, etc.)."""
     return await uber_client.browser_key(payload.key)
 
 
 @app.post("/api/uber/finish-login")
 async def uber_finish_login():
-    """Navigate to riders.uber.com after login is confirmed."""
     return await uber_client.finish_login()
 
-
-# ── Uber Sync (Scraping) ─────────────────────────────────────────────────────
-
-@app.post("/api/uber/sync-history")
-async def sync_history():
-    """Scrape ride history from riders.uber.com."""
-    result = await uber_client.scrape_ride_history()
-    return result
-
-
-@app.get("/api/uber/history")
-def get_history(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
-    rides = db.get_ride_history(limit=limit, offset=offset, source_platform="uber")
-    return {"rides": rides, "total": db.get_ride_count(source_platform="uber")}
-
-
-@app.get("/api/rides/history")
-def get_all_history(
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    source: Optional[str] = Query(None),
-):
-    rides = db.get_ride_history(limit=limit, offset=offset, source_platform=source)
-    return {"rides": rides, "total": db.get_ride_count(source_platform=source)}
-
-
-@app.get("/api/uber/deeplink")
-def get_deeplink(
-    pickup: str = Query(None),
-    dropoff: str = Query(None),
-    pickup_lat: float = Query(None),
-    pickup_lng: float = Query(None),
-    dropoff_lat: float = Query(None),
-    dropoff_lng: float = Query(None),
-):
-    url = uber_client.build_deeplink(
-        pickup_address=pickup, dropoff_address=dropoff,
-        pickup_lat=pickup_lat, pickup_lng=pickup_lng,
-        dropoff_lat=dropoff_lat, dropoff_lng=dropoff_lng,
-    )
-    return {"deeplink": url}
-
-
-@app.get("/api/uber/estimates")
-async def get_estimates(
-    pickup_lat: float = Query(...),
-    pickup_lng: float = Query(...),
-    dropoff_lat: float = Query(...),
-    dropoff_lng: float = Query(...),
-):
-    return await uber_client.scrape_live_estimates(
-        pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
-    )
-
-
-# ── Ola OAuth + Sync ────────────────────────────────────────────────────────
-
-@app.get("/api/ola/status")
-def ola_status():
-    return ola_client.get_connection_status()
-
-
-@app.get("/api/ola/login")
-def ola_login():
-    try:
-        return RedirectResponse(url=ola_client.build_oauth_url(), status_code=307)
-    except ola_client.OlaConfigError as exc:
-        return _error_response(str(exc))
-
-
-@app.get("/auth/ola/callback", response_class=HTMLResponse)
-def ola_callback():
-    return HTMLResponse(
-        content="""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ola Connection</title>
-  <style>
-    body { font-family: system-ui, sans-serif; background: #0d1117; color: #f0f6fc; display: grid; place-items: center; min-height: 100vh; margin: 0; }
-    .card { width: min(460px, calc(100vw - 32px)); background: #161b22; border: 1px solid #30363d; border-radius: 18px; padding: 24px; }
-    .muted { color: #8b949e; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1 style="margin-top:0;font-size:1.2rem">Connecting Ola</h1>
-    <p class="muted" id="status">Validating your Ola access token...</p>
-  </div>
-  <script>
-    const statusEl = document.getElementById("status");
-    const hash = new URLSearchParams(window.location.hash.slice(1));
-    const accessToken = hash.get("access_token");
-    const expiresIn = hash.get("expires_in");
-    const state = hash.get("state");
-
-    if (!accessToken) {
-      statusEl.textContent = "Ola did not return an access token. Please close this window and try again.";
-    } else {
-      fetch("/api/ola/token", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          access_token: accessToken,
-          expires_in: expiresIn ? Number(expiresIn) : null,
-          state: state
-        })
-      })
-      .then(async (response) => ({ok: response.ok, data: await response.json()}))
-      .then(({ok, data}) => {
-        statusEl.textContent = ok ? "Ola connected successfully. You can close this window." : (data.error || "Failed to connect Ola.");
-        if (window.opener && window.location.origin === window.opener.location.origin) {
-          window.opener.postMessage({type: "ola_oauth_result", ok, data}, window.location.origin);
-        }
-        if (ok) {
-          setTimeout(() => window.close(), 1200);
-        }
-      })
-      .catch(() => {
-        statusEl.textContent = "Failed to reach the local app. Make sure the server is still running.";
-      });
-    }
-  </script>
-</body>
-</html>"""
-    )
-
-
-class OlaTokenPayload(BaseModel):
-    access_token: str
-    expires_in: Optional[int] = None
-    state: Optional[str] = None
-
-
-@app.post("/api/ola/token")
-def ola_token(payload: OlaTokenPayload):
-    try:
-        return ola_client.store_access_token(
-            access_token=payload.access_token,
-            expires_in=payload.expires_in,
-            state=payload.state,
-        )
-    except (ola_client.OlaConfigError, ola_client.OlaAPIError) as exc:
-        return _error_response(str(exc))
-
-
-@app.post("/api/ola/sync-history")
-def ola_sync_history():
-    try:
-        return ola_client.sync_ride_history()
-    except (ola_client.OlaConfigError, ola_client.OlaAPIError) as exc:
-        return _error_response(str(exc))
-
-
-# ── Food Providers (Swiggy / Zomato) ───────────────────────────────────────
 
 @app.get("/api/food/status")
 def food_status(provider: Optional[str] = Query(None)):
     try:
         return food_client.get_connection_status(provider=provider)
-    except ValueError as exc:
+    except Exception as exc:
         return _error_response(str(exc))
 
 
@@ -788,20 +556,9 @@ def food_status(provider: Optional[str] = Query(None)):
 async def food_login(provider: str):
     try:
         return await food_client.start_login(provider)
-    except ValueError as exc:
-        return _error_response(str(exc))
-
-
-
-class CookieLoginPayload(BaseModel):
-    cookie: str
-
-@app.post("/api/food/login/zomato/cookie")
-async def food_login_zomato_cookie(payload: CookieLoginPayload):
-    try:
-        return await food_client.zomato_cookie_login(payload.cookie)
     except Exception as exc:
         return _error_response(str(exc))
+
 
 @app.get("/api/food/screenshot")
 async def food_screenshot():
@@ -827,209 +584,710 @@ async def food_key(payload: KeyPayload):
 async def food_finish_login(provider: str):
     try:
         return await food_client.finish_login(provider)
-    except ValueError as exc:
+    except Exception as exc:
         return _error_response(str(exc))
 
 
-@app.post("/api/food/sync-history")
-async def food_sync_history(provider: Optional[str] = Query(None)):
+@app.get("/api/history/sync")
+async def history_sync(provider: Optional[str] = Query(None)):
+    ride_result = {"synced": 0, "total_found": 0}
+    food_result = {"synced": 0, "total_found": 0}
+    ride_errors: list[str] = []
+    food_errors: list[str] = []
+
     try:
-        return await food_client.sync_order_history(provider=provider)
-    except ValueError as exc:
-        return _error_response(str(exc))
+        ride_result = await uber_client.scrape_ride_history()
+    except Exception as exc:
+        ride_errors.append(str(exc))
 
+    try:
+        food_result = await food_client.sync_order_history(provider="swiggy" if provider in (None, "swiggy") else provider)
+    except Exception as exc:
+        food_errors.append(str(exc))
 
-@app.get("/api/food/history")
-def food_history(
-    limit: int = Query(50, ge=1, le=250),
-    offset: int = Query(0, ge=0),
-    source: Optional[str] = Query(None),
-):
+    extraction = pattern_engine.run_full_extraction()
     return {
-        "orders": db.get_food_order_history(limit=limit, offset=offset, source_platform=source),
-        "total": db.get_food_order_count(source_platform=source),
+        "rides": ride_result,
+        "food": food_result,
+        "ride_errors": ride_errors,
+        "food_errors": food_errors,
+        "patterns": extraction,
     }
 
 
-@app.get("/api/food/suggestion")
-async def food_suggestion(
-    lat: float = Query(None),
-    lng: float = Query(None),
-):
-    suggestion = food_suggestion_engine.get_suggestion()
-    suggestion = await _enrich_food_suggestion_with_live_data(suggestion, lat, lng)
-    if not suggestion:
-        return {"suggestion": None, "message": "No food suggestion right now."}
-    return {"suggestion": suggestion}
+@app.post("/api/uber/sync-history")
+async def sync_uber_history():
+    result = await uber_client.scrape_ride_history()
+    pattern_engine.run_full_extraction()
+    return result
+
+
+@app.get("/api/uber/history")
+def uber_history(limit: int = Query(50, ge=1, le=250), offset: int = Query(0, ge=0)):
+    rows = db.get_ride_history(limit=limit, offset=offset, source_platform="uber")
+    return {
+        "rides": [_serialize_ride_row(row) for row in rows],
+        "total": db.get_ride_count(source_platform="uber"),
+    }
+
+
+@app.post("/api/food/sync-history")
+async def sync_food_history(provider: Optional[str] = Query(None)):
+    result = await food_client.sync_order_history(provider=provider or "swiggy")
+    pattern_engine.run_full_extraction()
+    return result
+
+
+@app.get("/api/rides/history")
+def rides_history(limit: int = Query(50, ge=1, le=250), offset: int = Query(0, ge=0), source: Optional[str] = Query(None)):
+    rows = db.get_ride_history(limit=limit, offset=offset, source_platform=source)
+    return {"rides": [_serialize_ride_row(row) for row in rows], "total": db.get_ride_count(source_platform=source)}
+
+
+@app.get("/api/food/history")
+def food_history(limit: int = Query(50, ge=1, le=250), offset: int = Query(0, ge=0), source: Optional[str] = Query(None)):
+    return {"orders": db.get_food_order_history(limit=limit, offset=offset, source_platform=source), "total": db.get_food_order_count(source_platform=source)}
 
 
 @app.get("/api/food/top-restaurants")
-async def food_top_restaurants(
-    lat: float = Query(None),
-    lng: float = Query(None),
-):
-    """Scrape top restaurants from Swiggy (opens Swiggy in background browser)."""
+async def food_top_restaurants(lat: Optional[float] = Query(None), lng: Optional[float] = Query(None)):
     try:
-        result = await food_client.scrape_top_restaurants(lat=lat, lng=lng)
-        return result
+        return await food_client.scrape_top_restaurants(lat=lat, lng=lng)
     except Exception as exc:
-        log.error("Failed to scrape top restaurants: %s", exc)
-        return JSONResponse(
-            status_code=500,
-            content={"restaurants": [], "error": str(exc)},
+        log.warning("Top restaurant scrape failed: %s", exc)
+        return {"restaurants": [], "error": str(exc)}
+
+
+def _next_occurrence(day_of_week: int, hour_bin: int) -> datetime:
+    now = db.utc_now()
+    minute_of_day = int(hour_bin) * 15
+    hour = minute_of_day // 60
+    minute = minute_of_day % 60
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    delta_days = (day_of_week - now.weekday()) % 7
+    candidate = candidate + timedelta(days=delta_days)
+    if candidate < now:
+        candidate = candidate + timedelta(days=7)
+    return candidate
+
+
+def _format_pattern_time(hour_bin: int) -> str:
+    minute_of_day = int(hour_bin) * 15
+    hour = minute_of_day // 60
+    minute = minute_of_day % 60
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _minute_distance(left: int, right: int) -> int:
+    diff = abs(left - right)
+    return min(diff, (24 * 60) - diff)
+
+
+def _parse_iso_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=db.UTC)
+    return parsed.astimezone(db.UTC)
+
+
+def _to_coordinate(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= number <= 90 or -180 <= number <= 180):
+        return None
+    return number
+
+
+def _is_generic_location_label(label: str | None) -> bool:
+    text = str(label or "").strip().lower()
+    if not text:
+        return True
+    generic_values = {
+        "current location",
+        "last known origin",
+        "suggested destination",
+        "unknown",
+        "unknown pickup",
+        "unknown destination",
+        "not captured",
+    }
+    return text in generic_values
+
+
+def _geocode_free_nominatim(label: str) -> tuple[float, float] | None:
+    key = " ".join(label.strip().lower().split())
+    if not key:
+        return None
+    if key in FREE_GEOCODE_CACHE:
+        return FREE_GEOCODE_CACHE[key]
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"format": "jsonv2", "limit": 1, "q": label},
+            headers={"User-Agent": "proactive-assistant-map-geocoder"},
+            timeout=5,
         )
+        response.raise_for_status()
+        payload = response.json()
+        coords = None
+        if isinstance(payload, list) and payload:
+            lat = float(payload[0]["lat"])
+            lng = float(payload[0]["lon"])
+            coords = (lat, lng)
+    except Exception as exc:
+        log.warning("Suggestion geocode failed for %r: %s", label, exc)
+        coords = None
+    FREE_GEOCODE_CACHE[key] = coords
+    return coords
+
+
+async def _enrich_suggestion_coordinates(
+    suggestion: dict[str, Any],
+    *,
+    user_lat: float | None,
+    user_lng: float | None,
+) -> dict[str, Any]:
+    origin = suggestion.get("origin") if isinstance(suggestion.get("origin"), dict) else {}
+    destination = suggestion.get("destination") if isinstance(suggestion.get("destination"), dict) else {}
+
+    destination_label = destination.get("label") or suggestion.get("destination_label")
+    origin_label = origin.get("label")
+
+    origin_lat = _to_coordinate(origin.get("lat"))
+    origin_lng = _to_coordinate(origin.get("lng"))
+    dest_lat = _to_coordinate(destination.get("lat"))
+    dest_lng = _to_coordinate(destination.get("lng"))
+
+    if user_lat is not None and user_lng is not None:
+        origin_lat = _to_coordinate(user_lat)
+        origin_lng = _to_coordinate(user_lng)
+
+    geocode_tasks: list[tuple[str, asyncio.Task]] = []
+    if (origin_lat is None or origin_lng is None) and origin_label and not _is_generic_location_label(origin_label):
+        geocode_tasks.append(("origin", asyncio.create_task(asyncio.to_thread(_geocode_free_nominatim, origin_label))))
+    if (dest_lat is None or dest_lng is None) and destination_label and not _is_generic_location_label(destination_label):
+        geocode_tasks.append(("destination", asyncio.create_task(asyncio.to_thread(_geocode_free_nominatim, destination_label))))
+
+    if geocode_tasks:
+        results = await asyncio.gather(*(task for _, task in geocode_tasks), return_exceptions=True)
+        for (target, _), result in zip(geocode_tasks, results):
+            if isinstance(result, Exception) or not result:
+                continue
+            lat, lng = result
+            if target == "origin" and (origin_lat is None or origin_lng is None):
+                origin_lat, origin_lng = lat, lng
+            if target == "destination" and (dest_lat is None or dest_lng is None):
+                dest_lat, dest_lng = lat, lng
+
+    if destination_label:
+        destination["label"] = destination_label
+    if origin_label:
+        origin["label"] = origin_label
+    if origin_lat is not None and origin_lng is not None:
+        origin["lat"] = origin_lat
+        origin["lng"] = origin_lng
+    if dest_lat is not None and dest_lng is not None:
+        destination["lat"] = dest_lat
+        destination["lng"] = dest_lng
+
+    suggestion["origin"] = origin
+    suggestion["destination"] = destination
+    suggestion["destination_label"] = destination_label
+    return suggestion
+
+
+async def _hydrate_suggestion_live_quote(
+    suggestion: dict[str, Any],
+    *,
+    user_lat: float | None,
+    user_lng: float | None,
+) -> dict[str, Any]:
+    suggestion = await _enrich_suggestion_coordinates(suggestion, user_lat=user_lat, user_lng=user_lng)
+
+    origin = suggestion.get("origin") if isinstance(suggestion.get("origin"), dict) else {}
+    destination = suggestion.get("destination") if isinstance(suggestion.get("destination"), dict) else {}
+    origin_lat = _to_coordinate(origin.get("lat"))
+    origin_lng = _to_coordinate(origin.get("lng"))
+    dest_lat = _to_coordinate(destination.get("lat"))
+    dest_lng = _to_coordinate(destination.get("lng"))
+    destination_label = destination.get("label") or suggestion.get("destination_label")
+
+    if None in (origin_lat, origin_lng, dest_lat, dest_lng):
+        return suggestion
+
+    live_options = await suggestion_builder.fetch_ride_options(
+        {"lat": origin_lat, "lng": origin_lng, "label": origin.get("label")},
+        {"lat": dest_lat, "lng": dest_lng, "label": destination_label},
+    )
+    if not live_options:
+        return suggestion
+
+    suggestion["ride_options"] = live_options
+    prior_option = suggestion.get("recommended_option") if isinstance(suggestion.get("recommended_option"), dict) else {}
+    preferred_type = (prior_option.get("ride_type") or "").strip().lower()
+    recommended = next(
+        (
+            option
+            for option in live_options
+            if preferred_type and str(option.get("ride_type") or "").strip().lower() == preferred_type
+        ),
+        live_options[0],
+    )
+    recommended = dict(recommended)
+    recommended["deeplink"] = uber_client.build_deeplink(
+        pickup_lat=origin_lat,
+        pickup_lng=origin_lng,
+        dropoff_lat=dest_lat,
+        dropoff_lng=dest_lng,
+        dropoff_address=destination_label,
+    )
+    suggestion["recommended_option"] = recommended
+    suggestion["surge_flag"] = bool((recommended.get("surge_multiplier") or 1.0) > 1.5)
+    return suggestion
+
+
+def _has_strict_live_recommendation(payload: dict[str, Any] | None) -> bool:
+    if not payload:
+        return False
+    option = payload.get("recommended_option") or {}
+    return bool(
+        option.get("live_data")
+        and option.get("ride_type")
+        and option.get("price") is not None
+        and option.get("eta") is not None
+    )
+
+
+async def _build_next_ride_prediction() -> dict[str, Any] | None:
+    pending = db.get_latest_pending_suggestion()
+    if pending and pending["type"] == "ride":
+        payload = dict(pending["payload"])
+        payload["reason_string"] = pending["reason_string"]
+        payload["suggestion_id"] = pending["id"]
+        payload["prediction_kind"] = "triggered"
+        return payload
+
+    patterns = db.list_departure_patterns()
+    if not patterns:
+        return None
+
+    ranked = sorted(
+        patterns,
+        key=lambda row: (_next_occurrence(row["day_of_week"], row["hour_bin"]), -float(row["confidence"])),
+    )
+    pattern = ranked[0]
+    event = {
+        "type": "ride",
+        "trigger_reason": ["forecast_pattern"],
+        "confidence": float(pattern["confidence"]),
+        "pattern_ref": f"departure_patterns:{pattern['id']}",
+        "fired_at": _next_occurrence(pattern["day_of_week"], pattern["hour_bin"]),
+        "suppressed": False,
+        "suppression_reason": None,
+        "early_departure_delta": 0,
+    }
+    payload = await suggestion_builder.build_ride_suggestion(event)
+    payload["reason_string"] = payload.get("reason_string") or "Next likely ride based on your past departures."
+    payload["prediction_kind"] = "forecast"
+    payload["suggestion_id"] = None
+    return payload
+
+
+async def _build_ranked_ride_candidates(user_lat: float | None = None, user_lng: float | None = None) -> list[dict[str, Any]]:
+    now = db.utc_now()
+    minute_of_day = now.hour * 60 + now.minute
+    patterns = [row for row in db.list_departure_patterns() if row["day_of_week"] == now.weekday()]
+    if not patterns:
+        return await _build_history_based_ride_candidates(now, user_lat=user_lat, user_lng=user_lng)
+
+    scored_patterns: list[tuple[float, dict[str, Any], int]] = []
+    for pattern in patterns:
+        pattern_minute = int(pattern["hour_bin"]) * 15
+        minute_diff = _minute_distance(pattern_minute, minute_of_day)
+        if minute_diff > 180:
+            continue
+        time_score = max(0.0, 1.0 - (minute_diff / 180.0))
+        score = (
+            float(pattern.get("confidence") or 0.0) * 0.55
+            + min(float(pattern.get("frequency") or 0.0) / 5.0, 1.0) * 0.25
+            + time_score * 0.20
+        )
+        scored_patterns.append((score, pattern, minute_diff))
+
+    scored_patterns.sort(key=lambda item: (-item[0], item[2], -float(item[1].get("frequency") or 0.0)))
+    candidates: list[dict[str, Any]] = []
+    for score, pattern, minute_diff in scored_patterns[:4]:
+        event = {
+            "type": "ride",
+            "trigger_reason": ["current_time_match"],
+            "confidence": float(pattern["confidence"]),
+            "pattern_ref": f"departure_patterns:{pattern['id']}",
+            "fired_at": now,
+            "suppressed": False,
+            "suppression_reason": None,
+            "early_departure_delta": 0,
+            "origin_override": {
+                "source": "current_location" if user_lat is not None and user_lng is not None else "last_known_origin",
+                "lat": user_lat,
+                "lng": user_lng,
+            } if user_lat is not None and user_lng is not None else None,
+        }
+        payload = await suggestion_builder.build_ride_suggestion(event)
+        payload["reason_string"] = payload.get("reason_string") or "Matched against your verified Uber ride timing."
+        payload["prediction_kind"] = "forecast"
+        payload["suggestion_id"] = None
+        payload["_candidate_score"] = round(score, 4)
+        payload["_minute_diff"] = minute_diff
+        candidates.append(payload)
+    return candidates
+
+
+async def _build_history_based_ride_candidates(
+    now: datetime,
+    *,
+    user_lat: float | None = None,
+    user_lng: float | None = None,
+) -> list[dict[str, Any]]:
+    rides = db.get_ride_history(limit=100, source_platform="uber")
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for ride in rides:
+        label = (ride.get("dest_label") or "").strip()
+        if not label:
+            continue
+        grouped[label].append(ride)
+
+    candidates: list[dict[str, Any]] = []
+    minute_of_day = now.hour * 60 + now.minute
+    for label, entries in grouped.items():
+        if len(entries) < 2:
+            continue
+        day_matches = 0
+        same_day_entries: list[tuple[dict[str, Any], datetime, int]] = []
+        all_diffs: list[int] = []
+        fares: list[float] = []
+        ride_types: dict[str, int] = defaultdict(int)
+        for ride in entries:
+            departure = _parse_iso_dt(ride.get("departure_time"))
+            if not departure:
+                continue
+            departure_minute = departure.hour * 60 + departure.minute
+            minute_diff = _minute_distance(departure_minute, minute_of_day)
+            all_diffs.append(minute_diff)
+            if departure.weekday() == now.weekday():
+                day_matches += 1
+                same_day_entries.append((ride, departure, minute_diff))
+            fare = ride.get("fare")
+            if isinstance(fare, (int, float)):
+                fares.append(float(fare))
+            ride_type = ride.get("ride_type")
+            if ride_type:
+                ride_types[str(ride_type)] += 1
+
+        if not all_diffs:
+            continue
+
+        best_entry = min(same_day_entries, key=lambda item: item[2])[0] if same_day_entries else entries[0]
+        best_diff = min((item[2] for item in same_day_entries), default=min(all_diffs))
+        if best_diff > 240:
+            continue
+
+        time_score = max(0.0, 1.0 - (best_diff / 240.0))
+        frequency_score = min(len(entries) / 5.0, 1.0)
+        day_score = min(day_matches / max(len(entries), 1), 1.0)
+        score = round((frequency_score * 0.45) + (time_score * 0.35) + (day_score * 0.20), 4)
+        if score < 0.3:
+            continue
+
+        avg_fare = round(sum(fares) / len(fares), 2) if fares else None
+        top_ride_type = max(ride_types, key=ride_types.get) if ride_types else None
+        recommended_departure = now.isoformat()
+        origin_lat = user_lat if user_lat is not None else best_entry.get("origin_lat")
+        origin_lng = user_lng if user_lng is not None else best_entry.get("origin_lng")
+        origin_label = best_entry.get("origin_label")
+        candidate = {
+            "pattern_ref": None,
+            "trigger_reasons": ["history_similarity"],
+            "origin": {
+                "source": "current_location" if user_lat is not None and user_lng is not None else "last_known_origin",
+                "label": origin_label,
+                "lat": origin_lat,
+                "lng": origin_lng,
+            },
+            "destination_id": None,
+            "destination_label": label,
+            "destination": {
+                "label": label,
+                "lat": best_entry.get("dest_lat"),
+                "lng": best_entry.get("dest_lng"),
+            },
+            "usual_departure_time": recommended_departure,
+            "recommended_departure_time": recommended_departure,
+            "traffic_delta_minutes": 0,
+            "ride_options": [],
+            "recommended_option": {
+                "platform": "uber",
+                "ride_type": top_ride_type,
+                "price": avg_fare,
+                "eta": None,
+                "surge_multiplier": 1.0,
+                "raw_price_text": None,
+                "live_data": False,
+                "deeplink": uber_client.build_deeplink(
+                    pickup_lat=origin_lat,
+                    pickup_lng=origin_lng,
+                    dropoff_lat=best_entry.get("dest_lat"),
+                    dropoff_lng=best_entry.get("dest_lng"),
+                    dropoff_address=label,
+                ),
+            },
+            "surge_flag": False,
+            "reason_string": f"This destination appears in your verified Uber history {len(entries)} times and aligns best with the current time.",
+            "prediction_kind": "history_ranked",
+            "suggestion_id": None,
+            "_candidate_score": score,
+            "_minute_diff": best_diff,
+        }
+        candidate = await _hydrate_suggestion_live_quote(candidate, user_lat=user_lat, user_lng=user_lng)
+        candidates.append(candidate)
+
+    candidates.sort(key=lambda item: float(item.get("_candidate_score") or 0.0), reverse=True)
+    return candidates[:4]
+
+
+@app.get("/api/patterns/summary")
+def patterns_summary():
+    return {
+        "departure_patterns": db.list_departure_patterns(include_suppressed=True),
+        "destination_patterns": db.list_destination_clusters(),
+        "order_patterns": db.list_order_patterns(include_suppressed=True),
+        "restaurant_patterns": db.list_restaurant_patterns(),
+        "cuisine_by_day": db.list_cuisine_by_day(),
+    }
+
+
+@app.get("/api/ride/patterns")
+def ride_patterns():
+    summary = patterns_summary()
+    return {
+        "top_patterns": [
+            {
+                "dropoff": (cluster.get("label") if cluster else None) or f"Destination {item['id']}",
+                "expected_time": _format_pattern_time(item.get("hour_bin", 0)),
+                "frequency": item.get("frequency"),
+                "confidence": item.get("confidence"),
+                "day_of_week": item.get("day_of_week"),
+            }
+            for item in summary["departure_patterns"][:6]
+            for cluster in [db.get_destination_cluster(item["destination_id"]) if item.get("destination_id") else None]
+        ],
+        "departure_patterns": summary["departure_patterns"],
+        "destination_patterns": summary["destination_patterns"],
+    }
 
 
 @app.get("/api/food/patterns")
 def food_patterns():
-    return food_suggestion_engine.get_pattern_summary()
+    summary = patterns_summary()
+    return {
+        "top_patterns": [
+            {
+                "restaurant_name": recent_order.get("restaurant_name") if recent_order else "Swiggy pick",
+                "cuisine": item.get("cuisine"),
+                "confidence": item.get("confidence"),
+            }
+            for item in summary["order_patterns"][:6]
+            for recent_order in [db.get_recent_order_for_restaurant(item["restaurant_id"]) if item.get("restaurant_id") else None]
+        ],
+        "order_patterns": summary["order_patterns"],
+        "restaurant_patterns": summary["restaurant_patterns"],
+        "cuisine_by_day": summary["cuisine_by_day"],
+    }
 
 
-class FoodConfirmPayload(BaseModel):
-    route_key: str
-    source_platform: Optional[str] = None
-    restaurant_name: Optional[str] = None
-    item_name: Optional[str] = None
+@app.get("/api/suggestions/current")
+def current_suggestion():
+    return _pending_suggestion_response(db.get_latest_pending_suggestion())
 
-
-@app.post("/api/food/confirm")
-def food_confirm(payload: FoodConfirmPayload):
-    db.log_food_interaction(
-        "confirm",
-        suggestion_payload=payload.model_dump(),
-        route_key=payload.route_key,
-    )
-    return {"confirmed": True}
-
-
-class FoodDismissPayload(BaseModel):
-    route_key: str
-    reason: Optional[str] = None
-
-
-@app.post("/api/food/dismiss")
-def food_dismiss(payload: FoodDismissPayload):
-    db.log_food_interaction(
-        "dismiss",
-        suggestion_payload={"reason": payload.reason},
-        route_key=payload.route_key,
-    )
-    return {"dismissed": True}
-
-
-# ── Suggestion Flow ──────────────────────────────────────────────────────────
 
 @app.get("/api/ride/suggestion")
-async def get_suggestion(
-    request: Request,
-    lat: float = Query(None),
-    lng: float = Query(None),
+async def current_ride_suggestion(
+    lat: float | None = Query(None),
+    lng: float | None = Query(None),
 ):
-    profile = _auth_profile_from_request(request)
-    suggestion = suggestion_engine.get_suggestion(
+    uber_status_payload = uber_client.get_connection_status()
+    if not uber_status_payload.get("connected"):
+        return {"suggestion": None}
+
+    candidates = await _build_ranked_ride_candidates(user_lat=lat, user_lng=lng)
+    if not candidates:
+        return {"suggestion": None}
+
+    strict_candidates = [candidate for candidate in candidates if _has_strict_live_recommendation(candidate)]
+    using_strict_live_data = bool(strict_candidates)
+    ranked_candidates = strict_candidates if strict_candidates else candidates
+    if not using_strict_live_data:
+        log.info("Strict Uber live quote unavailable; falling back to best-fit LLM/history candidate")
+
+    suggestion = suggestion_engine.choose_best_current_prediction(
+        ranked_candidates,
+        current_time=db.utc_now(),
         user_lat=lat,
         user_lng=lng,
-        user_identifier=profile["identifier"] if profile else None,
     )
-    suggestion = await _enrich_ride_suggestion_with_live_data(suggestion, lat, lng)
     if not suggestion:
-        return {"suggestion": None, "message": "No ride suggestion at this time."}
+        return {"suggestion": None}
+
+    suggestion = await _hydrate_suggestion_live_quote(suggestion, user_lat=lat, user_lng=lng)
+
+    suggestion["llm_validated"] = True
+    suggestion["validation_score"] = suggestion.get("_candidate_score")
+    suggestion["used_strict_live_data"] = using_strict_live_data
     return {"suggestion": suggestion}
 
 
-@app.get("/api/ride/upcoming")
-def get_upcoming():
-    return {"upcoming": suggestion_engine.get_upcoming_rides()}
+@app.get("/api/food/suggestion")
+def current_food_suggestion():
+    suggestion = db.get_latest_pending_suggestion()
+    if suggestion and suggestion["type"] == "food":
+        return {"suggestion": _pending_suggestion_response(suggestion)["suggestion"]}
+    return {"suggestion": None}
 
 
-@app.get("/api/ride/patterns")
-def get_patterns():
-    return suggestion_engine.get_pattern_summary()
+@app.post("/api/suggestions/{suggestion_id}/confirm")
+def confirm_suggestion(suggestion_id: int, payload: ConfirmSuggestionPayload):
+    suggestion = db.get_suggestion(suggestion_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found.")
+    updated = db.update_suggestion_outcome(suggestion_id, "confirmed", edits=payload.edits or {})
+    db_payload = updated["payload"]
+    pattern_engine.reweight(
+        {
+            "pattern_ref": db_payload.get("pattern_ref"),
+            "event_type": "confirmed",
+            "edits": payload.edits or {},
+        }
+    )
+    return {"confirmed": True, "suggestion": _pending_suggestion_response(updated)["suggestion"]}
 
 
-class ConfirmPayload(BaseModel):
-    route_key: str
-    pickup: Optional[str] = None
-    dropoff: Optional[str] = None
-    ride_type: Optional[str] = None
+@app.post("/api/suggestions/{suggestion_id}/dismiss")
+def dismiss_suggestion(suggestion_id: int):
+    suggestion = db.get_suggestion(suggestion_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found.")
+    updated = db.update_suggestion_outcome(suggestion_id, "dismissed")
+    db_payload = updated["payload"]
+    pattern_engine.reweight(
+        {
+            "pattern_ref": db_payload.get("pattern_ref"),
+            "event_type": "dismissed",
+            "edits": None,
+        }
+    )
+    return {"dismissed": True, "suggestion_id": suggestion_id}
 
 
 @app.post("/api/ride/confirm")
-def confirm_ride(payload: ConfirmPayload):
-    db.log_interaction(
-        "confirm",
-        suggestion_payload=payload.model_dump(),
-        route_key=payload.route_key,
-    )
-    deeplink = uber_client.build_deeplink(
-        pickup_address=payload.pickup,
-        dropoff_address=payload.dropoff,
-    )
-    return {"confirmed": True, "deeplink": deeplink}
-
-
-class DismissPayload(BaseModel):
-    route_key: str
-    reason: Optional[str] = None
-    reason_code: Optional[str] = None
-    feedback_text: Optional[str] = None
-    pickup: Optional[str] = None
-    dropoff: Optional[str] = None
-    suggestion_payload: Optional[dict] = None
+def legacy_confirm_ride(payload: LegacyRideActionPayload):
+    pending = db.get_latest_pending_suggestion()
+    if pending and pending["type"] == "ride":
+        updated = db.update_suggestion_outcome(pending["id"], "confirmed")
+        db_payload = updated["payload"]
+        pattern_engine.reweight(
+            {
+                "pattern_ref": db_payload.get("pattern_ref"),
+                "event_type": "confirmed",
+                "edits": None,
+            }
+        )
+        deeplink = db_payload.get("recommended_option", {}).get("deeplink")
+        return {"confirmed": True, "deeplink": deeplink}
+    return {"confirmed": True, "deeplink": None}
 
 
 @app.post("/api/ride/dismiss")
-def dismiss_ride(payload: DismissPayload, request: Request):
-    profile = _auth_profile_from_request(request)
-    user_identifier = profile["identifier"] if profile else "anonymous"
-    reason = payload.reason or payload.reason_code
-
-    db.log_interaction(
-        "dismiss",
-        suggestion_payload={
-            "reason": reason,
-            "reason_code": payload.reason_code,
-            "feedback_text": payload.feedback_text,
-            "pickup": payload.pickup,
-            "dropoff": payload.dropoff,
-        },
-        route_key=payload.route_key,
-    )
-    memory = db.upsert_ride_feedback_memory(
-        user_identifier=user_identifier,
-        route_key=payload.route_key,
-        pickup_address=payload.pickup,
-        dropoff_address=payload.dropoff,
-        reason_code=payload.reason_code or payload.reason,
-        feedback_text=(payload.feedback_text or "").strip() or None,
-        suggestion_payload=payload.suggestion_payload,
-    )
-    return {"dismissed": True, "memory": memory}
+def legacy_dismiss_ride(payload: LegacyRideActionPayload):
+    pending = db.get_latest_pending_suggestion()
+    if pending and pending["type"] == "ride":
+        updated = db.update_suggestion_outcome(pending["id"], "dismissed")
+        db_payload = updated["payload"]
+        pattern_engine.reweight(
+            {
+                "pattern_ref": db_payload.get("pattern_ref"),
+                "event_type": "dismissed",
+                "edits": None,
+            }
+        )
+    return {"dismissed": True}
 
 
-@app.get("/api/ride/feedback")
-def get_ride_feedback(route_key: str, request: Request):
-    profile = _auth_profile_from_request(request)
-    if not profile:
-        return {"memory": None}
-    return {"memory": db.get_ride_feedback_memory(profile["identifier"], route_key)}
+@app.post("/api/food/confirm")
+def legacy_confirm_food(payload: dict[str, Any]):
+    pending = db.get_latest_pending_suggestion()
+    if pending and pending["type"] == "food":
+        updated = db.update_suggestion_outcome(pending["id"], "confirmed")
+        db_payload = updated["payload"]
+        pattern_engine.reweight(
+            {
+                "pattern_ref": db_payload.get("pattern_ref"),
+                "event_type": "confirmed",
+                "edits": None,
+            }
+        )
+    return {"confirmed": True}
 
 
-class EditPayload(BaseModel):
-    route_key: str
-    edited_fields: dict
+@app.post("/api/food/dismiss")
+def legacy_dismiss_food(payload: dict[str, Any]):
+    pending = db.get_latest_pending_suggestion()
+    if pending and pending["type"] == "food":
+        updated = db.update_suggestion_outcome(pending["id"], "dismissed")
+        db_payload = updated["payload"]
+        pattern_engine.reweight(
+            {
+                "pattern_ref": db_payload.get("pattern_ref"),
+                "event_type": "dismissed",
+                "edits": None,
+            }
+        )
+    return {"dismissed": True}
 
 
-@app.post("/api/ride/edit")
-def edit_ride(payload: EditPayload):
-    db.log_interaction(
-        "edit",
-        suggestion_payload=payload.model_dump(),
-        edited_fields=payload.edited_fields,
-        route_key=payload.route_key,
-    )
-    deeplink = uber_client.build_deeplink(
-        pickup_address=payload.edited_fields.get("pickup"),
-        dropoff_address=payload.edited_fields.get("dropoff"),
-    )
-    return {"edited": True, "deeplink": deeplink}
+@app.get("/api/health")
+def api_health():
+    return health()
+
+
+@app.get("/api/trigger/log")
+def trigger_log():
+    return {"events": db.list_trigger_events(limit=20)}
+
+
+@app.get("/health")
+def health():
+    return {"platforms": get_scraper_health()}
+
+
+@app.websocket("/ws/suggestions")
+async def suggestions_ws(websocket: WebSocket):
+    await websocket.accept()
+    queue = await broadcaster.connect()
+    try:
+        pending = db.get_latest_pending_suggestion()
+        if pending:
+            await websocket.send_json(_pending_suggestion_response(pending))
+        while True:
+            payload = await queue.get()
+            await websocket.send_json(payload)
+    except WebSocketDisconnect:
+        broadcaster.disconnect(queue)
+    except Exception:
+        broadcaster.disconnect(queue)
+        raise

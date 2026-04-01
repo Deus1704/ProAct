@@ -171,9 +171,6 @@
           <span class="font-headline text-2xl italic tracking-tight text-primary">Assistant</span>
         </button>
         <div class="flex items-center gap-3 md:gap-6">
-          <button class="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant/40 text-primary transition-colors hover:bg-surface-container-high" type="button" aria-label="Live context">
-            <span class="material-symbols-outlined text-[22px]">sensors</span>
-          </button>
           <button class="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant/40 text-primary transition-colors hover:bg-surface-container-high" type="button" aria-label="Profile">
             <span class="material-symbols-outlined text-[22px]">account_circle</span>
           </button>
@@ -258,10 +255,10 @@
               <button class="panel-cta--cyan bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="confirm" type="button">
                 Confirm Ride
               </button>
-              <button class="secondary-cta px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] transition-colors hover:bg-surface-container-high" data-home-ride-action="dismiss" type="button">
+              <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="dismiss" type="button">
                 Dismiss Suggestion
               </button>
-              <button class="secondary-cta px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] transition-colors hover:bg-surface-container-high" data-home-ride-action="explore" type="button">
+              <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="explore" type="button">
                 Explore More
               </button>
             </div>
@@ -284,24 +281,24 @@
               </div>
 
               <div id="homeFoodContent" class="hidden max-w-xl space-y-5">
-                <h2 class="font-headline text-3xl leading-tight text-on-surface md:text-4xl">
+                <h2 id="homeFoodTitle" class="font-headline text-3xl leading-tight text-on-surface md:text-4xl">
                   A dining suggestion is ready for tonight.
                 </h2>
-                <p class="max-w-lg text-sm leading-7 text-on-surface-variant md:text-base">
+                <p id="homeFoodText" class="max-w-lg text-sm leading-7 text-on-surface-variant md:text-base">
                   Your synced food patterns and current timing point to a fast, reliable order or a sit-down reservation with minimal wait.
                 </p>
                 <div class="space-y-3 border-t border-outline-variant/20 pt-5 text-sm text-on-surface-variant">
                   <div class="flex items-center justify-between gap-6">
                     <span class="font-medium text-on-surface">Recommendation</span>
-                    <span>Personalized from history</span>
+                    <span id="homeFoodRecommendation">Personalized from history</span>
                   </div>
                   <div class="flex items-center justify-between gap-6">
                     <span class="font-medium text-on-surface">Timing</span>
-                    <span>Matched to your schedule</span>
+                    <span id="homeFoodTiming">Matched to your schedule</span>
                   </div>
                   <div class="flex items-center justify-between gap-6">
                     <span class="font-medium text-on-surface">Providers</span>
-                    <span>Swiggy and Zomato ready</span>
+                    <span id="homeFoodProviders">Swiggy ready</span>
                   </div>
                 </div>
               </div>
@@ -360,7 +357,44 @@
 
           <article class="relative overflow-hidden border border-outline-variant/20 bg-surface-container-low p-8 md:p-10">
             <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(203,198,189,0.18),transparent_34%),linear-gradient(135deg,rgba(73,70,64,0.25),transparent_55%)]"></div>
-            <div class="relative flex h-full min-h-[320px] flex-col justify-between gap-10">
+            <div id="liveContextLoading" class="live-context-loading relative hidden h-full min-h-[320px] flex-col justify-between gap-10" aria-busy="true" aria-live="polite">
+              <div class="space-y-5">
+                <div class="live-context-skeleton live-context-skeleton--eyebrow"></div>
+                <div class="live-context-skeleton live-context-skeleton--headline"></div>
+                <div class="live-context-skeleton live-context-skeleton--subline"></div>
+              </div>
+              <div class="live-context-skeleton-grid">
+                <div class="live-context-skeleton-card">
+                  <div class="live-context-skeleton live-context-skeleton--label"></div>
+                  <div class="live-context-skeleton live-context-skeleton--value"></div>
+                </div>
+                <div class="live-context-skeleton-card">
+                  <div class="live-context-skeleton live-context-skeleton--label"></div>
+                  <div class="live-context-skeleton live-context-skeleton--value"></div>
+                </div>
+                <div class="live-context-skeleton-card">
+                  <div class="live-context-skeleton live-context-skeleton--label"></div>
+                  <div class="live-context-skeleton live-context-skeleton--value"></div>
+                </div>
+              </div>
+              <div class="flex items-center gap-4">
+                <div class="live-context-skeleton-track">
+                  <div class="live-context-skeleton-track__fill"></div>
+                </div>
+                <span class="font-label text-[10px] uppercase tracking-[0.2em] text-on-surface-variant">Locating nearby conditions</span>
+              </div>
+            </div>
+            <div id="liveContextUnavailable" class="relative hidden min-h-[320px] flex-col justify-center gap-4">
+              <p class="font-label text-[10px] uppercase tracking-[0.28em] text-on-surface-variant">Live Context</p>
+              <h2 class="font-headline text-3xl italic text-on-surface md:text-4xl">Live context unavailable</h2>
+              <p class="max-w-lg text-sm leading-7 text-on-surface-variant md:text-base">
+                We could not load ambient conditions for this location. Try again in a moment.
+              </p>
+              <button class="mt-2 inline-flex w-fit items-center border border-outline-variant px-5 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" id="liveContextRetry" type="button">
+                Retry
+              </button>
+            </div>
+            <div id="liveContextContent" class="relative hidden flex h-full min-h-[320px] flex-col justify-between gap-10">
               <div class="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
                 <div>
                   <p class="mb-2 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface-variant">Live Context</p>
@@ -371,7 +405,7 @@
                   <p id="contextLocation" class="text-sm text-on-surface md:text-base">SoMa District</p>
                 </div>
               </div>
-              <div class="grid gap-4 text-sm text-on-surface-variant md:grid-cols-3">
+                <div class="grid gap-4 text-sm text-on-surface-variant md:grid-cols-3">
                 <div>
                   <p class="mb-1 font-label text-[10px] uppercase tracking-[0.22em] text-on-surface-variant">Temperature</p>
                   <p id="contextTemperature" class="text-on-surface">Waiting for GPS</p>
@@ -381,7 +415,7 @@
                   <p id="contextAqi" class="text-on-surface">Waiting for GPS</p>
                 </div>
                 <div>
-                  <p class="mb-1 font-label text-[10px] uppercase tracking-[0.22em] text-on-surface-variant">Position</p>
+                  <p class="mb-1 font-label text-[10px] uppercase tracking-[0.22em] text-on-surface-variant">Wind Speed</p>
                   <p id="contextCoords" class="text-on-surface">Waiting for GPS</p>
                 </div>
               </div>
@@ -418,9 +452,6 @@
           <span class="font-headline text-2xl italic tracking-tight text-primary">Assistant</span>
         </button>
         <div class="flex items-center gap-3 md:gap-6">
-          <button class="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-primary" type="button" aria-label="Live context">
-            <span class="material-symbols-outlined text-[22px]">sensors</span>
-          </button>
           <button class="flex h-10 w-10 items-center justify-center rounded-full text-primary transition-opacity hover:opacity-80" type="button" aria-label="Profile">
             <span class="material-symbols-outlined text-[22px]">account_circle</span>
           </button>
@@ -488,27 +519,6 @@
                 <button class="border border-outline-variant px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface transition-colors hover:bg-surface-container-high" id="scheduleRide" type="button">
                   Schedule
                 </button>
-              </div>
-            </section>
-
-            <section id="ridePatternsSection" class="space-y-8 pt-4">
-              <div class="flex items-center justify-between gap-4 border-b border-outline-variant/20 pb-2">
-                <h2 class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Alternative Carriers</h2>
-                <span class="font-label text-[10px] uppercase tracking-widest text-primary">Live options</span>
-              </div>
-              <div id="ridePatternCards" class="space-y-3">
-                <article class="flex items-center justify-between gap-4 p-2 text-on-surface transition-colors duration-200 hover:bg-surface-container-low">
-                  <div class="flex items-center gap-4">
-                    <div class="flex h-10 w-10 items-center justify-center bg-surface-container-high text-secondary">
-                      <span class="material-symbols-outlined">directions_car</span>
-                    </div>
-                    <div>
-                      <p class="font-headline text-lg italic">Loading options</p>
-                      <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">Waiting for ride data</p>
-                    </div>
-                  </div>
-                  <p class="font-body text-on-surface">...</p>
-                </article>
               </div>
             </section>
 
@@ -606,9 +616,6 @@
           <span class="font-headline text-2xl italic tracking-tight text-primary">Assistant</span>
         </button>
         <div class="flex items-center gap-3 md:gap-6">
-          <button class="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-primary" type="button" aria-label="Live context">
-            <span class="material-symbols-outlined text-[22px]">sensors</span>
-          </button>
           <button class="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-primary" type="button" aria-label="Profile">
             <span class="material-symbols-outlined text-[22px]">account_circle</span>
           </button>
@@ -621,7 +628,7 @@
             <div>
               <p id="foodCurationLabel" class="mb-6 font-label text-[10px] uppercase tracking-[0.3em] text-on-surface-variant">Friday Evening Curation</p>
               <h1 id="foodHeroText" class="mb-8 max-w-4xl font-headline text-5xl italic leading-[1.1] text-primary md:text-7xl">
-                Hungry? Connect Swiggy or Zomato to personalize your next meal.
+                Hungry? Connect Swiggy to personalize your next meal.
               </h1>
               <div class="max-w-md">
                 <p id="foodEtaText" class="text-lg font-light leading-relaxed text-on-surface-variant">
@@ -630,7 +637,7 @@
               </div>
             </div>
             <div>
-              <div class="group relative aspect-[4/5] overflow-hidden bg-surface-container-low">
+              <div class="group relative mx-auto aspect-[4/5] w-full max-w-[360px] overflow-hidden bg-surface-container-low md:max-w-[420px] xl:max-w-[460px]">
                 <img alt="Artisanal Earth Bowl" class="h-full w-full object-cover grayscale-[20%] transition-transform duration-[2000ms] ease-out group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDxvEzgTJiXSZaEdlFc3lGIl0V5lS3NtsEfoIRRwwQ0y90P23GfIqjFbRkoXtxQ_s2IoUIUbLc_JJNpcXKNR9I1p5WCEHUxE_0L7PPhFEa2hJU2NTn8_X444iY-hwxhFOJUJTUNpDCrEBxzQnC4X0ZLAs8FqvzxgZ84nvGWThHY1n4K9MzK9Njt6yG2HRCfHTGxGu1vDVpkfqkqSoh90ssf5Rf4Pt1zT3_seU_YQ5ZktRCLYOFBUlmF8l2oSsT6fdc3tPiHUodI6fA" />
                 <div class="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_0%,#0f0e0d_90%)]"></div>
                 <div class="absolute bottom-6 left-6">
@@ -671,14 +678,11 @@
               <div class="space-y-6">
                 <div>
                   <h3 id="foodConnectionStatusText" class="text-lg font-medium text-on-surface">No food accounts connected</h3>
-                  <p id="foodSyncStatusText" class="mt-2 text-sm leading-relaxed text-on-surface-variant">Connect Swiggy or Zomato and sync to load real order history and cravings.</p>
+                  <p id="foodSyncStatusText" class="mt-2 text-sm leading-relaxed text-on-surface-variant">Connect Swiggy and sync to load real order history and cravings.</p>
                 </div>
                 <div class="flex flex-wrap gap-3">
                   <button class="border border-outline-variant px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface transition-colors hover:bg-surface-container-high" id="connectSwiggyBtn" type="button">
                     Connect Swiggy
-                  </button>
-                  <button class="border border-outline-variant px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface transition-colors hover:bg-surface-container-high" id="connectZomatoBtn" type="button">
-                    Connect Zomato
                   </button>
                   <button class="bg-primary px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" id="syncFoodHistoryBtn" type="button">
                     Sync Food History
@@ -720,7 +724,7 @@
                 <article class="flex items-center justify-between gap-4 border border-outline-variant/10 bg-surface-container-low p-4">
                   <div>
                     <h3 class="text-sm font-medium text-on-surface">Waiting for order sync</h3>
-                    <p class="mt-1 text-sm text-on-surface-variant">Connect and sync Swiggy or Zomato to load your recent orders.</p>
+                    <p class="mt-1 text-sm text-on-surface-variant">Connect and sync Swiggy to load your recent orders.</p>
                   </div>
                   <button class="reorder-button border border-outline-variant px-4 py-2 font-label text-[10px] uppercase tracking-widest text-on-surface-variant" type="button" disabled>REORDER</button>
                 </article>
@@ -759,6 +763,40 @@
       </div>
       <div class="browser-viewer__input-row">
         <input id="browserInput" type="text" placeholder="Type while focused in the login window. Enter, Tab, and arrows are supported." autocomplete="off" />
+      </div>
+    </section>
+
+    <div class="profile-panel-overlay" id="profilePanelOverlay" aria-hidden="true"></div>
+    <section class="profile-panel" id="profilePanel" role="dialog" aria-modal="true" aria-labelledby="profilePanelTitle">
+      <div class="profile-panel__header">
+        <h3 id="profilePanelTitle">Profile</h3>
+        <button class="icon-button" id="closeProfilePanel" type="button" aria-label="Close profile window">×</button>
+      </div>
+      <div class="profile-panel__body">
+        <p class="profile-panel__eyebrow">Signed in as</p>
+        <h4 class="profile-panel__name" id="profilePanelName">Assistant User</h4>
+        <p class="profile-panel__identifier" id="profilePanelIdentifier">identifier@example.com</p>
+
+        <div class="profile-panel__section">
+          <p class="profile-panel__section-label">Connected Accounts</p>
+          <div class="profile-panel__accounts">
+            <div class="profile-panel__account-row">
+              <span>Uber</span>
+              <span class="profile-account-pill" id="profileAccountUber">Checking</span>
+            </div>
+            <div class="profile-panel__account-row">
+              <span>Swiggy</span>
+              <span class="profile-account-pill" id="profileAccountSwiggy">Checking</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="profile-panel__section">
+          <p class="profile-panel__section-label">Session</p>
+          <p class="profile-panel__section-copy">This profile window is available from every route. Close it anytime with the X button or Escape.</p>
+        </div>
+
+        <button class="profile-panel__logout" id="profileLogoutBtn" type="button">Log Out</button>
       </div>
     </section>
 
@@ -859,7 +897,7 @@
                 <input
                   id="landingEmail"
                   class="w-full bg-transparent border-0 border-b border-outline-variant py-4 px-0 focus:ring-0 focus:border-primary transition-all duration-500 placeholder:text-outline/40 font-body text-lg text-on-surface"
-                  placeholder="Email or phone number"
+                  placeholder="Email"
                   type="email"
                   autocomplete="email"
                   required

@@ -6,7 +6,6 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Assistant - Login</title>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&amp;display=swap"
@@ -123,7 +122,7 @@
                 <span class="font-serif italic text-3xl text-primary tracking-tight">Assistant</span>
             </div>
             <div class="max-w-md">
-                <h1 class="font-serif text-6xl lg:text-7xl leading-tight text-primary mb-8">At your service.</h1>
+                <h1 class="font-serif text-6xl lg:text-7xl leading-tight text-primary mb-8 -mt-10" style="margin-top: -340px; margin-right:-40.75rem; font-size: 7.5rem;">At your service.</h1>
                 <p class="font-body text-secondary-dim text-lg leading-relaxed max-w-sm">
                     The digital curator for your most ambitious journeys. Prepared, refined, and perpetually attentive.
                 </p>
@@ -150,12 +149,12 @@
             </div>
             <form class="space-y-10" id="loginForm" novalidate>
                 <div class="space-y-6">
-                    <label class="block font-serif text-3xl text-on-surface">Welcome back.</label>
+                    <label class="block font-serif text-3xl text-on-surface">Welcome.</label>
                     <div class="relative group">
                         <input
                             class="w-full bg-transparent border-0 border-b border-outline-variant py-4 px-0 focus:ring-0 focus:border-primary transition-all duration-500 placeholder:text-outline/40 font-body text-lg"
                             id="identifier"
-                            placeholder="Email or phone number"
+                            placeholder="Name"
                             type="text"
                             autocomplete="username" />
                     </div>
@@ -167,18 +166,6 @@
                     Continue
                 </button>
             </form>
-            <div class="relative flex items-center justify-center">
-                <div class="absolute inset-0 flex items-center">
-                    <div class="w-full border-t border-outline-variant/30"></div>
-                </div>
-                <span
-                    class="relative bg-surface px-4 text-[10px] uppercase tracking-[0.2em] text-outline">Identification</span>
-            </div>
-            <div class="grid grid-cols-1 gap-4">
-                <div class="hidden" id="googleSigninSection">
-                    <div class="w-full overflow-hidden border border-outline-variant/30 bg-surface-container-low/20 px-4 py-4" id="googleSigninContainer"></div>
-                </div>
-            </div>
             <div class="pt-8">
                 <p class="text-[10px] text-outline leading-loose uppercase tracking-widest text-center md:text-left">
                     By continuing, you agree to our <a class="underline hover:text-primary" href="#">Terms of
@@ -197,8 +184,6 @@
         const submitButton = document.getElementById("submitButton");
         const errorBox = document.getElementById("loginError");
         const errorMessage = errorBox ? errorBox.querySelector("p") : null;
-        const googleSigninSection = document.getElementById("googleSigninSection");
-        const googleSigninContainer = document.getElementById("googleSigninContainer");
 
         function showError(message) {
             if (!errorBox || !errorMessage) return;
@@ -214,67 +199,6 @@
             errorBox.classList.remove("flex");
         }
 
-        async function handleGoogleCredentialResponse(googleResponse) {
-            hideError();
-
-            if (!googleResponse?.credential) {
-                showError("Google sign-in did not return a credential.");
-                return;
-            }
-
-            try {
-                const response = await fetch("/api/auth/google", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        credential: googleResponse.credential
-                    })
-                });
-
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok || !data?.ok) {
-                    throw new Error(data?.error || "Unable to continue with Google.");
-                }
-
-                window.location.assign(data.redirect_to || "/");
-            } catch (error) {
-                showError(error.message || "Unable to continue with Google.");
-            }
-        }
-
-        async function initGoogleSignin() {
-            if (!googleSigninSection || !googleSigninContainer) return;
-
-            try {
-                const response = await fetch("/api/auth/google/config");
-                const config = await response.json();
-                if (!config?.enabled || !config?.client_id || !window.google?.accounts?.id) {
-                    return;
-                }
-
-                google.accounts.id.initialize({
-                    client_id: config.client_id,
-                    callback: handleGoogleCredentialResponse,
-                    ux_mode: "popup",
-                    auto_select: false,
-                    cancel_on_tap_outside: true
-                });
-
-                google.accounts.id.renderButton(googleSigninContainer, {
-                    theme: "outline",
-                    size: "large",
-                    shape: "rectangular",
-                    text: "continue_with",
-                    width: "320"
-                });
-
-                googleSigninSection.classList.remove("hidden");
-            } catch (error) {
-                console.warn("Google sign-in initialization failed", error);
-            }
-        }
 
         form?.addEventListener("submit", async (event) => {
             event.preventDefault();
@@ -283,7 +207,7 @@
             const identifier = String(identifierInput?.value || "").trim();
 
             if (!identifier) {
-                showError("Please enter your email or phone number.");
+                showError("Please enter your name.");
                 return;
             }
 
@@ -316,8 +240,6 @@
                 submitButton.textContent = "Continue";
             }
         });
-
-        initGoogleSignin();
     </script>
 </body>
 

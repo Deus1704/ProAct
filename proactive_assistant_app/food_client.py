@@ -1,4 +1,4 @@
-"""Swiggy/Zomato integration via browser-assisted login and history scraping."""
+"""Swiggy integration via browser-assisted login and history scraping."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import database as db
-from . import zomato_api
-
 log = logging.getLogger(__name__)
 
 SESSION_DIR = os.path.join(os.path.dirname(__file__), "browser_session")
@@ -32,21 +30,6 @@ PROVIDER_CONFIG = {
         "orders_urls": [
             "https://www.swiggy.com/my-account/orders",
             "https://www.swiggy.com/my-account",
-        ],
-    },
-    "zomato": {
-        "label": "Zomato",
-        "login_url": "https://www.zomato.com/restaurants",
-        "orders_url": "https://www.zomato.com/orders",
-        "login_urls": [
-            "https://www.zomato.com/restaurants",
-            "https://www.zomato.com/in",
-            "https://www.zomato.com/?desktop_web=1",
-        ],
-        "orders_urls": [
-            "https://www.zomato.com/orders",
-            "https://www.zomato.com/in/orders",
-            "https://www.zomato.com",
         ],
     },
 }
@@ -262,14 +245,6 @@ async def start_login(provider: str) -> dict:
     global _active_provider
 
     p = _provider_key(provider)
-    if p == "zomato":
-        return {
-            "status": "info",
-            "provider": p,
-            "message": "Zomato requires cookie-based login. Please use the cookie login endpoint.",
-            "requires_cookie": True,
-        }
-
     context = await _ensure_context(p)
 
     old_page = _pages.get(p)
@@ -293,29 +268,6 @@ async def start_login(provider: str) -> dict:
     except Exception as exc:
         log.error("Failed to open %s login: %s", p, exc)
         return {"status": "error", "provider": p, "message": str(exc)}
-
-
-async def zomato_cookie_login(cookie: str) -> dict:
-    p = "zomato"
-    is_valid = await zomato_api.check_auth_async(cookie)
-    if not is_valid:
-        return {
-            "status": "error",
-            "provider": p,
-            "message": "The provided Zomato cookie is invalid or expired.",
-        }
-
-    db.set_setting(_setting_key(p, "zomato_cookie"), cookie)
-    db.set_setting(_setting_key(p, "connected"), "true")
-    db.set_setting(_setting_key(p, "login_status"), "logged_in")
-    db.set_setting(_setting_key(p, "login_time"), datetime.now(timezone.utc).isoformat())
-
-    return {
-        "status": "logged_in",
-        "provider": p,
-        "message": "Zomato successfully connected via cookie.",
-    }
-
 
 async def get_screenshot() -> dict:
     provider, page = _active_page()
@@ -436,15 +388,13 @@ async def finish_login(provider: str) -> dict:
 async def sync_order_history(provider: str | None = None) -> dict:
     providers = [
         _provider_key(provider)
-    ] if provider else [
-        p for p in PROVIDER_CONFIG.keys() if db.get_setting(_setting_key(p, "connected")) == "true"
-    ]
+    ] if provider else ["swiggy"] if db.get_setting(_setting_key("swiggy", "connected")) == "true" else []
 
     if not providers:
         return {
             "synced": 0,
             "total_found": 0,
-            "errors": ["Connect Swiggy or Zomato before syncing."],
+            "errors": ["Connect Swiggy before syncing."],
         }
 
     total_synced = 0
@@ -467,52 +417,7 @@ async def sync_order_history(provider: str | None = None) -> dict:
 
 
 async def _sync_provider_history(provider: str) -> dict:
-    if provider == "zomato":
-        return await _sync_zomato_history()
     return await _sync_swiggy_history(provider)
-
-
-async def _sync_zomato_history() -> dict:
-    provider = "zomato"
-    cookie = db.get_setting(_setting_key(provider, "zomato_cookie"))
-    if not cookie:
-        db.set_setting(_setting_key(provider, "connected"), "false")
-        return {
-            "synced": 0,
-            "total_found": 0,
-            "error": "No Zomato cookie found. Please log in first.",
-        }
-
-    is_valid = await zomato_api.check_auth_async(cookie)
-    if not is_valid:
-        db.set_setting(_setting_key(provider, "connected"), "false")
-        return {
-            "synced": 0,
-            "total_found": 0,
-            "error": "Zomato session expired. Reconnect and retry.",
-        }
-
-    try:
-        orders = await zomato_api.fetch_all_orders_async(cookie)
-        for order in orders:
-            db.insert_food_order(order)
-        
-        db.set_setting(_setting_key(provider, "history_synced"), "true")
-        db.set_setting(_setting_key(provider, "last_sync_time"), datetime.now(timezone.utc).isoformat())
-
-        return {
-            "synced": len(orders),
-            "total_found": len(orders),
-            "provider": provider,
-        }
-    except Exception as exc:
-        log.error("Failed to sync Zomato history via API: %s", exc)
-        return {
-            "synced": 0,
-            "total_found": 0,
-            "provider": provider,
-            "error": f"Zomato API sync failed: {exc}",
-        }
 
 
 async def _sync_swiggy_history(provider: str) -> dict:
