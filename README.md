@@ -13,15 +13,74 @@ The system is designed around two product surfaces:
 - Ride Assistant: predicts likely next rides, validates them against live pricing and ETA data, and exposes a one-tap confirmation flow
 - Food Assistant: predicts likely next orders, checks live restaurant availability and delivery timing, and presents alternatives when the preferred option is weak or unavailable
 
+## Local Setup
+
+### Prerequisites
+
+- Python 3.10 or newer
+- Chromium installed through Playwright
+- Network access for third-party pages and public APIs
+
+### Install
+
+```bash
+cd proactive_assistant
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### Environment variables
+
+Create `.env` in the project root:
+
+```env
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-120b
+GEOCODING_API=
+PORT=8000
+```
+
+Notes:
+
+- `GROQ_API_KEY` is optional. Without it, the app falls back to deterministic explanations and ranking.
+- `GEOCODING_API` is used for geocoding support.
+- `PORT` is currently not consumed by `run.py`; local dev starts on `8001` unless you run uvicorn manually.
+
+### Run
+
+Using the provided entry point:
+
+```bash
+python run.py
+```
+
+This starts the server on:
+
+```text
+http://localhost:8001
+```
+
+Equivalent uvicorn invocation:
+
+```bash
+uvicorn proactive_assistant_app.app:app --host 0.0.0.0 --port 8001 --reload
+```
+
+### First-run sequence
+
+1. Open `http://localhost:8001/login`
+2. Authenticate into the application shell
+3. Connect Uber from the rides flow
+4. Connect Swiggy from the food flow
+5. Run history sync
+6. Let pattern extraction populate behavioral memory
+7. Reload the main UI and inspect `/rides`, `/food`, and `/api/trigger/log`
+
 ## Walkthrough
 
-GitHub sanitizes iframes, so the Loom walkthrough is included as a clickable preview link instead of a true inline embed.
-
-<a href="https://www.loom.com/share/e2c98321cf0f48b69455ce2a091ebe58" target="_blank" rel="noopener noreferrer">
-  <img alt="Proactive Assistant Loom walkthrough" src="https://cdn.loom.com/sessions/thumbnails/e2c98321cf0f48b69455ce2a091ebe58-with-play.gif" />
-</a>
-
-Direct link: https://www.loom.com/share/e2c98321cf0f48b69455ce2a091ebe58
+Loom: https://www.loom.com/share/e2c98321cf0f48b69455ce2a091ebe58
 
 ## What the System Actually Does
 
@@ -426,76 +485,6 @@ This auth layer controls access to the SPA. Platform-specific authentication for
 - `GET /health`
 - `WS /ws/suggestions`
 
-## Local Development
-
-### Prerequisites
-
-- Python 3.10 or newer
-- Chromium installed through Playwright
-- Network access for third-party pages and public APIs
-
-### Install
-
-```bash
-cd proactive_assistant
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-playwright install chromium
-```
-
-### Environment variables
-
-Create `.env` in the project root:
-
-```env
-GROQ_API_KEY=
-GROQ_MODEL=openai/gpt-oss-120b
-GOOGLE_CLIENT_ID=
-GOOGLE_MAPS_API_KEY=
-TOMTOM_API_KEY=
-GEOCODING_API=
-MAPSCO_API_KEY=
-PORT=8000
-```
-
-Notes:
-
-- `GROQ_API_KEY` is optional. Without it, the app falls back to deterministic explanations and ranking.
-- `GOOGLE_CLIENT_ID` is optional. Without it, Google Sign-In is disabled.
-- `GOOGLE_MAPS_API_KEY` or `TOMTOM_API_KEY` improves live ride travel-time checks.
-- `PORT` is currently not consumed by `run.py`; local dev starts on `8001` unless you run uvicorn manually.
-
-### Run
-
-Using the provided entry point:
-
-```bash
-python run.py
-```
-
-This starts the server on:
-
-```text
-http://localhost:8001
-```
-
-Equivalent uvicorn invocation:
-
-```bash
-uvicorn proactive_assistant_app.app:app --host 0.0.0.0 --port 8001 --reload
-```
-
-### First-run sequence
-
-1. Open `http://localhost:8001/login`
-2. Authenticate into the application shell
-3. Connect Uber from the rides flow
-4. Connect Swiggy from the food flow
-5. Run history sync
-6. Let pattern extraction populate behavioral memory
-7. Reload the main UI and inspect `/rides`, `/food`, and `/api/trigger/log`
-
 ## Operating Notes
 
 ### Session artifacts
@@ -549,8 +538,6 @@ Run them with:
 ```bash
 pytest
 ```
-
-If `pytest` is not installed in your environment, install it separately or run the test command inside your preferred tooling setup.
 
 ## Current Constraints
 
