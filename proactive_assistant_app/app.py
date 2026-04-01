@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -721,31 +722,91 @@ def _is_generic_location_label(label: str | None) -> bool:
     return text in generic_values
 
 
+def _geocode_query_variants(label: str) -> list[str]:
+    base = " ".join(str(label or "").strip().split())
+    if not base:
+        return []
+
+    variants: list[str] = []
+
+    def add(value: str) -> None:
+        normalized = " ".join(value.strip().split())
+        if normalized and normalized not in variants:
+            variants.append(normalized)
+
+    add(base)
+    add(base.replace("Indian Institute of Technology", "IIT"))
+    add(base.replace("(IIT Gandhinagar)", "").replace("()", ""))
+    add(base.replace("Indian Institute of Technology", "IIT").replace("(IIT Gandhinagar)", ""))
+
+    no_pincode = re.sub(r"\b\d{6}\b", "", base)
+    add(no_pincode)
+    add(no_pincode.replace("Indian Institute of Technology", "IIT"))
+
+    parts = [part.strip() for part in re.split(r",| - ", base) if part.strip()]
+    if len(parts) >= 2:
+        add(", ".join(parts[-3:]))
+        add(" ".join(parts[-3:]))
+        add(" ".join(parts[-2:]))
+
+    return variants
+
+
+def _mapsco_api_key() -> str:
+    return (
+        os.getenv("GEOCODING_API", "").strip()
+        or os.getenv("MAPSCO_API_KEY", "").strip()
+        or os.getenv("MAPS_CO_API_KEY", "").strip()
+        or os.getenv("GEOCODE_MAPS_CO_API_KEY", "").strip()
+        or os.getenv("GEOCODE_API_KEY", "").strip()
+    )
+
+
 def _geocode_free_nominatim(label: str) -> tuple[float, float] | None:
     key = " ".join(label.strip().lower().split())
     if not key:
         return None
     if key in FREE_GEOCODE_CACHE:
         return FREE_GEOCODE_CACHE[key]
+    coords = None
+    mapsco_key = _mapsco_api_key()
     try:
-        response = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"format": "jsonv2", "limit": 1, "q": label},
-            headers={"User-Agent": "proactive-assistant-map-geocoder"},
-            timeout=5,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        coords = None
-        if isinstance(payload, list) and payload:
-            lat = float(payload[0]["lat"])
-            lng = float(payload[0]["lon"])
-            coords = (lat, lng)
+        headers = {"User-Agent": "proactive-assistant-map-geocoder"}
+        for query in _geocode_query_variants(label):
+            params: dict[str, Any] = {
+                "format": "jsonv2",
+                "limit": 1,
+                "q": query,
+            }
+            if mapsco_key:
+                params["api_key"] = mapsco_key
+
+            response = requests.get(
+                "https://geocode.maps.co/search",
+                params=params,
+                headers=headers,
+                timeout=5,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, list) and payload:
+                lat = float(payload[0]["lat"])
+                lng = float(payload[0]["lon"])
+                coords = (lat, lng)
+                break
     except Exception as exc:
         log.warning("Suggestion geocode failed for %r: %s", label, exc)
-        coords = None
     FREE_GEOCODE_CACHE[key] = coords
     return coords
+
+
+@app.get("/api/geocode")
+def geocode_location(q: str = Query(..., min_length=2)):
+    coords = _geocode_free_nominatim(q)
+    if not coords:
+        return {"result": None}
+    lat, lng = coords
+    return {"result": {"lat": lat, "lng": lng}}
 
 
 async def _enrich_suggestion_coordinates(

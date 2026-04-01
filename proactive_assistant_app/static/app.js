@@ -9,6 +9,7 @@ const API = {
     }
     return get(`/api/context/live?lat=${lat}&lng=${lng}`);
   },
+  geocode: (query) => get(`/api/geocode?q=${encodeURIComponent(query)}`),
   logout: () => post("/api/auth/logout"),
   suggestion: (lat, lng) => get(`/api/ride/suggestion${lat != null ? `?lat=${lat}&lng=${lng}` : ""}`),
   patterns: () => get("/api/ride/patterns"),
@@ -1120,16 +1121,16 @@ function renderHomeSummary() {
             <button class="panel-cta--cyan bg-primary px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="confirm" type="button">
               Confirm Ride
             </button>
-            <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="dismiss" type="button">
+            <button class="border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-home-ride-action="dismiss" type="button">
               Dismiss Suggestion
             </button>
-            <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="explore" type="button">
+            <button class="border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-home-ride-action="explore" type="button">
               Explore More
             </button>
           `;
         } else {
           homeRideActions.innerHTML = `
-            <button class="panel-cta--amber px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-primary transition-all duration-300 hover:opacity-90 active:scale-[0.98]" data-home-ride-action="explore" type="button">
+            <button class="border border-outline-variant px-6 py-3 font-label text-[10px] uppercase tracking-[0.28em] text-on-surface transition-colors hover:bg-surface-container-high" data-home-ride-action="explore" type="button">
               Explore More
             </button>
           `;
@@ -2093,32 +2094,50 @@ function refitRideMap() {
 
 const geocodeCache = {};
 
+function isGenericLocationLabel(address) {
+  const value = String(address || "").trim().toLowerCase();
+  return !value || [
+    "current location",
+    "suggested destination",
+    "unknown pickup",
+    "not captured",
+    "last known origin",
+    "unknown destination",
+  ].includes(value);
+}
+
+function bestLocationLabel(...candidates) {
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (!value) continue;
+    if (!isGenericLocationLabel(value)) return value;
+  }
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value) return value;
+  }
+  return null;
+}
+
 async function geocodeAddress(address) {
-  if (!address || address === "Current location" || address === "Suggested destination" || address === "Unknown pickup" || address === "Not captured") {
+  if (isGenericLocationLabel(address)) {
     return null;
   }
 
   const cacheKey = address.trim().toLowerCase();
-  if (geocodeCache[cacheKey]) return geocodeCache[cacheKey];
+  if (Object.prototype.hasOwnProperty.call(geocodeCache, cacheKey)) return geocodeCache[cacheKey];
 
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`;
-    const resp = await fetch(url, {
-      headers: { "Accept": "application/json" },
-    });
-    if (!resp.ok) return null;
-
-    const results = await resp.json();
-    if (!results || !results.length) {
-      // Try with a simplified query (remove common suffixes like "Road", "Street" etc.)
+    const payload = await API.geocode(address);
+    const result = payload?.result;
+    if (!result) {
       geocodeCache[cacheKey] = null;
       return null;
     }
-
-    const result = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
-    if (Number.isFinite(result.lat) && Number.isFinite(result.lng)) {
-      geocodeCache[cacheKey] = result;
-      return result;
+    const normalized = { lat: Number(result.lat), lng: Number(result.lng) };
+    if (Number.isFinite(normalized.lat) && Number.isFinite(normalized.lng)) {
+      geocodeCache[cacheKey] = normalized;
+      return normalized;
     }
     return null;
   } catch (err) {
@@ -2140,11 +2159,18 @@ function getActiveRideContext() {
   }) || history[0] || null;
 
   const pickupName = firstNonEmpty(
+    bestLocationLabel(suggestion.pickupLabel, primaryHistory?.pickup_address),
     suggestion.pickupLabel,
     primaryHistory?.pickup_address,
     "Current location"
   );
   const dropoffName = firstNonEmpty(
+    bestLocationLabel(
+      suggestion.destinationLabel,
+      primaryHistory?.dest_label,
+      primaryHistory?.dropoff_address,
+      state.patterns?.[0]?.dropoff
+    ),
     suggestion.destinationLabel,
     primaryHistory?.dest_label,
     primaryHistory?.dropoff_address,
@@ -2184,6 +2210,35 @@ function getActiveRideContext() {
   };
 }
 
+function destroyRideMap() {
+  if (rideMapState.routingControl && rideMapState.map) {
+    try {
+      rideMapState.map.removeControl(rideMapState.routingControl);
+    } catch {}
+  }
+  if (rideMapState.pickupMarker && rideMapState.map) {
+    try {
+      rideMapState.map.removeLayer(rideMapState.pickupMarker);
+    } catch {}
+  }
+  if (rideMapState.dropoffMarker && rideMapState.map) {
+    try {
+      rideMapState.map.removeLayer(rideMapState.dropoffMarker);
+    } catch {}
+  }
+  if (rideMapState.map) {
+    try {
+      rideMapState.map.remove();
+    } catch {}
+  }
+  rideMapState.map = null;
+  rideMapState.pickupMarker = null;
+  rideMapState.dropoffMarker = null;
+  rideMapState.routingControl = null;
+  rideMapState.initialized = false;
+  rideMapState.lastBounds = null;
+}
+
 async function renderRideMap(retryCount = 0) {
   const mapEl = document.getElementById("ride-map");
   
@@ -2214,13 +2269,13 @@ async function renderRideMap(retryCount = 0) {
   if (needsPickupGeocode || needsDropoffGeocode) {
     const geocodePromises = [];
 
-    if (needsPickupGeocode && pickupName && pickupName !== "Current location") {
+    if (needsPickupGeocode && !isGenericLocationLabel(pickupName)) {
       geocodePromises.push(geocodeAddress(pickupName).then(result => {
         if (result) { pickupLat = result.lat; pickupLng = result.lng; }
       }));
     }
 
-    if (needsDropoffGeocode && dropoffName && dropoffName !== "Suggested destination") {
+    if (needsDropoffGeocode && !isGenericLocationLabel(dropoffName)) {
       geocodePromises.push(geocodeAddress(dropoffName).then(result => {
         if (result) { dropoffLat = result.lat; dropoffLng = result.lng; }
       }));
@@ -2231,36 +2286,23 @@ async function renderRideMap(retryCount = 0) {
     }
   }
 
-  // If we still don't have pickup coords, anchor near a known point first.
-  if (pickupLat == null || pickupLng == null) {
-    if (dropoffLat != null && dropoffLng != null) {
-      pickupLat = dropoffLat + 0.01;
-      pickupLng = dropoffLng - 0.01;
-    } else if (state.userLat != null && state.userLng != null) {
-      pickupLat = state.userLat;
-      pickupLng = state.userLng;
-    } else {
-      pickupLat = 22.5726;
-      pickupLng = 73.0071;
+  if (pickupLat == null || pickupLng == null || dropoffLat == null || dropoffLng == null) {
+    destroyRideMap();
+    const trafficEl = document.getElementById("traffic-status");
+    if (trafficEl) {
+      trafficEl.innerHTML = `<span class="material-symbols-outlined text-sm">location_off</span>Missing verified route coordinates`;
     }
+    return;
   }
 
-  // If we still don't have dropoff coords, keep it local to the pickup.
-  if (dropoffLat == null || dropoffLng == null) {
-    dropoffLat = pickupLat - 0.01;
-    dropoffLng = pickupLng + 0.01;
-  }
-
-  // Avoid globe-scale zoom-outs from stale history or mismatched geocoding.
   const routeDistanceKm = haversineDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
-  if (routeDistanceKm > 120) {
-    const canTrustUserLocation = state.userLat != null && state.userLng != null;
-    const anchorLat = canTrustUserLocation ? state.userLat : pickupLat;
-    const anchorLng = canTrustUserLocation ? state.userLng : pickupLng;
-    pickupLat = anchorLat;
-    pickupLng = anchorLng;
-    dropoffLat = anchorLat + 0.012;
-    dropoffLng = anchorLng + 0.016;
+  if (!Number.isFinite(routeDistanceKm) || routeDistanceKm > 120) {
+    destroyRideMap();
+    const trafficEl = document.getElementById("traffic-status");
+    if (trafficEl) {
+      trafficEl.innerHTML = `<span class="material-symbols-outlined text-sm">location_off</span>Route coordinates look invalid`;
+    }
+    return;
   }
 
   if (!rideMapState.initialized) {
