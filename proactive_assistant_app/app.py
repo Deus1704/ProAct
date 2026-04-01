@@ -53,7 +53,9 @@ FREE_GEOCODE_CACHE: dict[str, tuple[float, float] | None] = {}
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
-    pattern_engine.run_full_extraction()
+    # Run pattern extraction in a background thread so geocoding HTTP calls
+    # don't block uvicorn from becoming ready.
+    asyncio.create_task(asyncio.to_thread(pattern_engine.run_full_extraction))
     await trigger_watcher.start()
     try:
         yield
