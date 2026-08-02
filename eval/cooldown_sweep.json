@@ -1,0 +1,284 @@
+{
+ "meta": {
+  "count": 200,
+  "seed": 20260730,
+  "anchor": "2026-03-02T00:00:00+00:00",
+  "positive_ratio": 0.5,
+  "generator": "eval/generate_dataset.py"
+ },
+ "sessions_evaluated": 200,
+ "poll_seconds": 60,
+ "window_minutes": 45,
+ "baseline": {
+  "policy": {
+   "ride_cooldown_minutes": 0,
+   "food_cooldown_minutes": 0,
+   "ride_confidence_threshold": 0.6,
+   "food_confidence_threshold": 0.55,
+   "global_cooldown_minutes": 0,
+   "dismissals_before_raise": 2,
+   "dismissals_before_suppress": 4
+  },
+  "metrics": {
+   "sessions": 200,
+   "positives": 100,
+   "negatives": 100,
+   "notifications": 1047,
+   "true_positives": 75,
+   "dup_notifications": 939,
+   "false_positives": 33,
+   "false_negatives": 25,
+   "precision": 0.0716,
+   "recall": 0.75,
+   "f1": 0.1308,
+   "triggers_per_session": 5.235,
+   "ticks": 18200,
+   "by_negative_kind": {
+    "dismissed_pattern": 33
+   },
+   "wall_seconds": 542.25
+  }
+ },
+ "points": [
+  {
+   "policy": {
+    "ride_cooldown_minutes": 0,
+    "food_cooldown_minutes": 0,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 1047,
+    "true_positives": 75,
+    "dup_notifications": 939,
+    "false_positives": 33,
+    "false_negatives": 25,
+    "precision": 0.0716,
+    "recall": 0.75,
+    "f1": 0.1308,
+    "triggers_per_session": 5.235,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 33
+    },
+    "wall_seconds": 542.25
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 5,
+    "food_cooldown_minutes": 5,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 287,
+    "true_positives": 75,
+    "dup_notifications": 203,
+    "false_positives": 9,
+    "false_negatives": 25,
+    "precision": 0.2613,
+    "recall": 0.75,
+    "f1": 0.3876,
+    "triggers_per_session": 1.435,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 9
+    },
+    "wall_seconds": 491.56
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 15,
+    "food_cooldown_minutes": 10,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 175,
+    "true_positives": 75,
+    "dup_notifications": 94,
+    "false_positives": 6,
+    "false_negatives": 25,
+    "precision": 0.4286,
+    "recall": 0.75,
+    "f1": 0.5455,
+    "triggers_per_session": 0.875,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 6
+    },
+    "wall_seconds": 497.4
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 30,
+    "food_cooldown_minutes": 20,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 156,
+    "true_positives": 75,
+    "dup_notifications": 75,
+    "false_positives": 6,
+    "false_negatives": 25,
+    "precision": 0.4808,
+    "recall": 0.75,
+    "f1": 0.5859,
+    "triggers_per_session": 0.78,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 6
+    },
+    "wall_seconds": 487.09
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 45,
+    "food_cooldown_minutes": 30,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 120,
+    "true_positives": 75,
+    "dup_notifications": 42,
+    "false_positives": 3,
+    "false_negatives": 25,
+    "precision": 0.625,
+    "recall": 0.75,
+    "f1": 0.6818,
+    "triggers_per_session": 0.6,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 3
+    },
+    "wall_seconds": 440.62
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 60,
+    "food_cooldown_minutes": 45,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 78,
+    "true_positives": 75,
+    "dup_notifications": 0,
+    "false_positives": 3,
+    "false_negatives": 25,
+    "precision": 0.9615,
+    "recall": 0.75,
+    "f1": 0.8427,
+    "triggers_per_session": 0.39,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 3
+    },
+    "wall_seconds": 446.6
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 90,
+    "food_cooldown_minutes": 60,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 0,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 78,
+    "true_positives": 75,
+    "dup_notifications": 0,
+    "false_positives": 3,
+    "false_negatives": 25,
+    "precision": 0.9615,
+    "recall": 0.75,
+    "f1": 0.8427,
+    "triggers_per_session": 0.39,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 3
+    },
+    "wall_seconds": 423.06
+   }
+  },
+  {
+   "policy": {
+    "ride_cooldown_minutes": 45,
+    "food_cooldown_minutes": 30,
+    "ride_confidence_threshold": 0.6,
+    "food_confidence_threshold": 0.55,
+    "global_cooldown_minutes": 20,
+    "dismissals_before_raise": 2,
+    "dismissals_before_suppress": 4
+   },
+   "metrics": {
+    "sessions": 200,
+    "positives": 100,
+    "negatives": 100,
+    "notifications": 120,
+    "true_positives": 75,
+    "dup_notifications": 42,
+    "false_positives": 3,
+    "false_negatives": 25,
+    "precision": 0.625,
+    "recall": 0.75,
+    "f1": 0.6818,
+    "triggers_per_session": 0.6,
+    "ticks": 18200,
+    "by_negative_kind": {
+     "dismissed_pattern": 3
+    },
+    "wall_seconds": 430.84
+   }
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+﻿dataset       : C:\Users\jayrajdulange\Downloads\Practice\resume-verify\ProAct\eval\holdout_sessions.json
+  meta        : {'count': 200, 'seed': 20260730, 'anchor': '2026-03-02T00:00:00+00:00', 'positive_ratio': 0.5, 'generator': 'eval/generate_dataset.py'}
+  sessions    : 200
+  replay      : every 60s across +/-45 min
+  sweep points: 8
+
+  evaluating ride=0m food=0m global=0m ...
+    precision   7.16%  recall  75.00%  notifications  1047  per-session  5.235  (542s)
+  evaluating ride=5m food=5m global=0m ...
+    precision  26.13%  recall  75.00%  notifications   287  per-session  1.435  (492s)
+  evaluating ride=15m food=10m global=0m ...
+    precision  42.86%  recall  75.00%  notifications   175  per-session  0.875  (497s)
+  evaluating ride=30m food=20m global=0m ...
+    precision  48.08%  recall  75.00%  notifications   156  per-session  0.780  (487s)
+  evaluating ride=45m food=30m global=0m ...
+    precision  62.50%  recall  75.00%  notifications   120  per-session  0.600  (441s)
+  evaluating ride=60m food=45m global=0m ...
+    precision  96.15%  recall  75.00%  notifications    78  per-session  0.390  (447s)
+  evaluating ride=90m food=60m global=0m ...
+    precision  96.15%  recall  75.00%  notifications    78  per-session  0.390  (423s)
+  evaluating ride=45m food=30m global=20m ...
+    precision  62.50%  recall  75.00%  notifications   120  per-session  0.600  (431s)
+
+============================================================================================================
+                                               COOLDOWN SWEEP                                               
+============================================================================================================
+ ride  food  glob |   precis   recall       F1 |  notifs  /session |   vs baseline: precision   notif freq
+------------------------------------------------------------------------------------------------------------
+    0     0     0 |    7.16%   75.00%   13.08% |    1047     5.235 |                  +0.00pp        +0.0%
+    5     5     0 |   26.13%   75.00%   38.76% |     287     1.435 |                 +18.97pp       -72.6%
+   15    10     0 |   42.86%   75.00%   54.55% |     175     0.875 |                 +35.69pp       -83.3%
+   30    20     0 |   48.08%   75.00%   58.59% |     156     0.780 |                 +40.91pp       -85.1%
+   45    30     0 |   62.50%   75.00%   68.18% |     120     0.600 |                 +55.34pp       -88.5%  <- shipped default
+   60    45     0 |   96.15%   75.00%   84.27% |      78     0.390 |                 +88.99pp       -92.6%
+   90    60     0 |   96.15%   75.00%   84.27% |      78     0.390 |                 +88.99pp       -92.6%
+   45    30    20 |   62.50%   75.00%   68.18% |     120     0.600 |                 +55.34pp       -88.5%
+------------------------------------------------------------------------------------------------------------
+baseline = no cooldown (0/0/0). 'pp' = percentage points.
+Recall is the number to watch while reading precision: a cooldown that
+also drops recall is not tuning, it is just switching the feature off.
+
+wrote C:\Users\jayrajdulange\Downloads\Practice\resume-verify\ProAct\eval\cooldown_sweep.json
