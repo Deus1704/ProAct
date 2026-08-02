@@ -7,3 +7,9 @@ __pycache__/
 proactive_assistant_app/assistant.db
 proactive_assistant_app/browser_session/
 tests/__pycache__/
+
+.venv/
+labeling/*.db
+labeling/*.db-wal
+labeling/*.db-shm
+labeling/*.demo.json

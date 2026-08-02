@@ -11,7 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "assistant.db")
+# Overridable so an evaluation or test run can point at a throwaway database
+# instead of the developer's real one. get_db() reads the module global on every
+# call, so tests may also assign database.DB_PATH directly.
+DB_PATH = os.environ.get(
+    "ASSISTANT_DB_PATH", os.path.join(os.path.dirname(__file__), "assistant.db")
+)
 UTC = timezone.utc
 
 
@@ -850,8 +855,13 @@ def any_order_today_in_window(restaurant_id: str, center_minute: int, window_min
     return False
 
 
-def count_recent_dismissals_for_pattern(pattern_id: str, days: int = 7) -> int:
-    cutoff = (utc_now() - timedelta(days=days)).isoformat()
+def count_recent_dismissals_for_pattern(
+    pattern_id: str, days: int = 7, now: datetime | None = None
+) -> int:
+    # `now` is injectable so an offline replay can evaluate the policy at a
+    # simulated timestamp. Reading the wall clock unconditionally would make
+    # every historical session look like it had no recent dismissals.
+    cutoff = ((now or utc_now()) - timedelta(days=days)).isoformat()
     with get_db() as conn:
         row = conn.execute(
             """
@@ -1009,8 +1019,11 @@ def update_suggestion_outcome(
     return result
 
 
-def mark_expired_pending_suggestions(timeout_minutes: int = 10) -> list[dict[str, Any]]:
-    cutoff = (utc_now() - timedelta(minutes=timeout_minutes)).isoformat()
+def mark_expired_pending_suggestions(
+    timeout_minutes: int = 10, now: datetime | None = None
+) -> list[dict[str, Any]]:
+    current = now or utc_now()
+    cutoff = (current - timedelta(minutes=timeout_minutes)).isoformat()
     pending = []
     with get_db() as conn:
         rows = conn.execute(
@@ -1024,11 +1037,11 @@ def mark_expired_pending_suggestions(timeout_minutes: int = 10) -> list[dict[str
         for row in rows:
             conn.execute(
                 "UPDATE suggestions SET outcome = 'ignored', outcome_at = ? WHERE id = ?",
-                (utc_now().isoformat(), row["id"]),
+                (current.isoformat(), row["id"]),
             )
             conn.execute(
                 "INSERT INTO dismissed_suggestions(suggestion_id, dismissed_at) VALUES (?, ?)",
-                (row["id"], utc_now().isoformat()),
+                (row["id"], current.isoformat()),
             )
             pending.append(dict(row))
     for item in pending:
