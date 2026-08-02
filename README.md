@@ -4,9 +4,39 @@ Proactive Assistant is a FastAPI application that predicts likely ride and food 
 
 - Persistent behavioral memory in SQLite
 - Authenticated browser automation with Playwright
-- Deterministic trigger evaluation running in the background
+- A multi-agent trigger pipeline: a central orchestrator dispatching to four sub-agents over asyncio message queues
 - Live data hydration for Uber and Swiggy
+- A deterministic offline evaluation harness over a labelled 200-session hold-out set
 - A single-page frontend for confirmation, feedback, and inspection
+
+## The hard part is not prediction
+
+Prediction here is a `GROUP BY`, not a model. The engineering is in two places:
+
+**Making a habit countable.** Raw history does not group: 08:58 and 09:04 are the
+same habit but different timestamps, and GPS drift makes one office look like
+forty distinct places. So departure times are binned into 15-minute windows
+(`(hour*60 + minute) // 15`, 96 bins/day) and destinations are clustered by
+haversine proximity. Only then is `(weekday, bin, cluster, platform, ride_type) →
+frequency` a meaningful count.
+
+**Earning the right to interrupt.** A learned window is ±20 minutes wide and the
+watcher polls every 60 seconds, so a matching pattern keeps matching for ~40
+consecutive ticks. A system that notifies on each one is *correct* 40 times and
+unusable — measured, that is **1,047 notifications for 100 genuine habits, 7.2%
+precision.** Turning "correct" into "useful" is what the cooldown policy and the
+evaluation harness in [`eval/`](eval/) exist for:
+
+| | no cooldown | tuned (60/45 min) |
+|---|---|---|
+| Precision | 7.16% | **96.15%** |
+| Recall | 75.00% | **75.00%** (unchanged) |
+| Notifications / session | 5.235 | **0.390** |
+| Duplicate spam | 939 | **0** |
+
+Measured over 200 labelled sessions, 18,200 replayed ticks per configuration. Full
+method, the saturation argument for choosing 60/45, and the limits of what this can
+claim: [eval/RESULTS.md](eval/RESULTS.md).
 
 The system is designed around two product surfaces:
 
@@ -98,15 +128,54 @@ Uber persists cookies to `proactive_assistant_app/browser_session/cookies.json`.
 
 Swiggy persists Playwright storage state to `proactive_assistant_app/browser_session/swiggy_storage_state.json`.
 
-### Background prediction loop
+### Background prediction loop — the agent pipeline
 
 At application startup:
 
 1. SQLite schema initialization runs
 2. Pattern extraction is launched in a background thread
-3. A persistent trigger watcher starts
+3. `TriggerWatcher` starts, which starts the `Orchestrator` and its four agents
 
-The trigger watcher evaluates patterns every 60 seconds and decides whether to emit a proactive suggestion.
+`TriggerWatcher` owns only *when* evaluation happens (every 60 seconds).
+`Orchestrator` owns *what it decides*. Every 60 seconds, one `tick()`:
+
+```
+Orchestrator ──TICK──► ① RidePatternAgent ─┐
+             ──TICK──► ② FoodPatternAgent ─┴─► ③ LiveContextAgent ──► ④ DecisionAgent
+                       (run concurrently)        (enrich, may fail)     (policy only)
+```
+
+| Agent | Responsibility | Deadline |
+|---|---|---|
+| ① `RidePatternAgent` | Does a learned departure window match now? Pure DB read. | 5 s |
+| ② `FoodPatternAgent` | Does a learned ordering window match now? Pure DB read. | 5 s |
+| ③ `LiveContextAgent` | Traffic / delivery-ETA enrichment. The **only** agent that touches the network. | 12 s |
+| ④ `DecisionAgent` | Cooldowns, dismissal thresholds, suppression, duplicate-action checks. The **only** place policy lives. | 8 s |
+
+Agents never call each other — they only put messages on `asyncio.Queue` inboxes,
+and the orchestrator is the only component that knows the pipeline's shape.
+
+**Why queues instead of direct awaits.** The previous implementation awaited ride
+evaluation, then food evaluation, then a Playwright scrape, in one sequence. That
+meant (a) two independent evaluations ran serially, (b) one hung third-party
+scrape stalled the entire loop including the cheap deterministic work, and (c) any
+exception killed the cycle. Each agent now runs under its own deadline and catches
+its own failures, so a timeout degrades one stage instead of the tick. A failed
+agent still *replies* (with `NO_CANDIDATE`), because a silent agent would make the
+orchestrator burn its whole join deadline waiting for a reply that never comes.
+
+**Why policy is isolated in one agent.** Separating feature extraction ("does a
+pattern match?") from policy ("should we interrupt?") is what lets `eval/` hold
+extraction fixed and sweep only `TriggerPolicy` — so a measured precision change
+is attributable to the policy and nothing else. All tunable knobs live in one
+frozen dataclass, `TriggerPolicy`.
+
+At most **one** notification is emitted per tick. Rides outrank food at equal
+confidence: a missed departure costs the user a late arrival, a missed meal prompt
+does not.
+
+Every message carries a `trace_id`, so all work produced by one tick can be
+reconstructed from logs after a misfire.
 
 ### Prediction mechanics
 
@@ -140,9 +209,10 @@ If no Groq key is provided, the system remains functional and falls back to dete
 ### Core modules
 
 - `app.py`: API surface, startup lifecycle, authentication cookie handling, live context aggregation, page serving
-- `database.py`: persistence layer and behavioral memory primitives
+- `database.py`: persistence layer and behavioral memory primitives. `DB_PATH` honours `$ASSISTANT_DB_PATH`, and the clock-dependent queries accept an injectable `now`, so an offline replay can evaluate the policy at a simulated timestamp
 - `pattern_engine.py`: extraction of ride and food patterns plus feedback reweighting
-- `trigger_watcher.py`: background loop that decides when to surface suggestions
+- `agents.py`: `Orchestrator`, the four sub-agents, and `TriggerPolicy` — all trigger decision logic
+- `trigger_watcher.py`: the timing shell (poll interval + task lifecycle) that drives `Orchestrator`
 - `suggestion_builder.py`: converts triggers into actionable suggestions and hydrates them with live data
 - `uber_client.py`: Uber Playwright login, history scraping, live estimate scraping, deeplink generation
 - `food_client.py`: Swiggy Playwright login, order-history scraping, top-restaurant scraping, live restaurant matching
@@ -526,18 +596,78 @@ to inspect scraper health, trigger behavior, and extracted memory state.
 
 ## Testing
 
-The repository includes targeted tests under `tests/`, for example:
+```bash
+pytest                      # 32 tests
+```
 
-- `tests/test_live_uber_estimates.py`
-- `tests/test_suggestion_builder_geocoding.py`
-- `tests/test_ola_client.py`
-- `tests/test_uber_history_quality.py`
+- `tests/test_agents.py` — 22 tests on the agent pipeline: policy (cooldowns,
+  soft-confidence tier, dismissal escalation and lookback expiry, cross-domain
+  global cooldown), agent mechanics (a throwing agent still replies; a hung agent
+  times out and replies; an agent survives repeated failures; live enrichment
+  degrades instead of dropping a candidate), and orchestration (both pattern
+  agents dispatched every tick, at most one notification per tick, policy
+  hot-swappable between ticks).
+- `tests/test_live_uber_estimates.py`, `tests/test_suggestion_builder_geocoding.py`,
+  `tests/test_ola_client.py`, `tests/test_uber_history_quality.py` — scraping and
+  hydration.
 
-Run them with:
+## Evaluation
+
+The trigger policy is measured offline against a labelled hold-out set rather
+than eyeballed. See [`eval/`](eval/) and [`eval/RESULTS.md`](eval/RESULTS.md).
 
 ```bash
-pytest
+python eval/generate_dataset.py       # 200 labelled sessions, fixed seed
+python eval/run_eval.py               # precision / recall / trigger frequency
+python eval/tune_cooldown.py          # sweep the cooldown policy (~1 h)
+python eval/diagnose_recall.py        # which stage drops each missed habit
+python eval/explain_confidence.py     # the count/total arithmetic for one session
+python eval/diagnose_dismissals.py    # why dismissal suppression leaks
 ```
+
+The harness drives the **same `Orchestrator` the app runs**, with the clock, the
+database path and the live-data fetcher injected. It is not a reimplementation —
+that distinction is why the numbers mean anything.
+
+### Real labels, not just synthetic ones
+
+The dataset above is synthetic, which validates the mechanism but says nothing
+about real users. [`labeling/`](labeling/) is the pipeline that produces the real
+version: it runs the predictor in shadow mode to capture what it *nearly* sent,
+stratify-samples six strata with recorded inclusion probabilities, asks the
+participant the one question that is not already in the behaviour log — *would
+this have been welcome or annoying?* — and exports into the **same schema**
+`eval/run_eval.py` reads.
+
+```bash
+python -m labeling.run_pipeline demo    # whole pipeline against a simulated respondent
+```
+
+See [`labeling/README.md`](labeling/README.md) for the methodology, the four
+validity threats it is built around, and the limitations it cannot fix (chiefly:
+it measures perceived usefulness, not incremental conversion — that needs a
+randomised holdout).
+
+### Known defects the evaluation surfaced
+
+Recall is capped at 75% and the cause is a single modelling choice with three
+symptoms. Fixed 15-minute bins split a habit that straddles a boundary into two
+half-strength patterns:
+
+1. **Recall ceiling** — neither half clears the confidence threshold.
+2. **Dismissal suppression leaks** — dismissal counts are keyed per pattern ID, so
+   dismissing one half leaves its twin unsuppressed and the rejected suggestion
+   returns under a different ID.
+3. **Every remaining false positive** at the tuned setting traces to that leak.
+
+A second, independent defect: `confidence = count / all events that weekday` scores
+every habit lower for users who simply do more things on that weekday, which is
+backwards. It should be a recurrence rate (`weeks_occurred / weeks_observed`).
+
+Neither is visible by reading the code — binning is implemented correctly and a ratio
+is a reasonable confidence. They are modelling mistakes, found by measuring the
+outcome and refusing to accept a number that could not be explained. Both are
+diagnosed and neither is fixed yet.
 
 ## Current Constraints
 
